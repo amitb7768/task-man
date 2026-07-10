@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>taskman</title>
+<style>
+  /* Token palette lifted from ui/src/index.css (kept in sync manually — this
+     file has no build step, so no @import of the app's real CSS). System
+     font stack only: this is a self-contained static file, no network font
+     fetches. */
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f4ee;
+    --surface: #ffffff;
+    --surface-2: #f0ece3;
+    --border: #e4ded2;
+    --border-strong: #d3cbbb;
+    --text: #22201b;
+    --text-muted: #6e675b;
+    --text-faint: #9c9484;
+    --accent: #455ac6;
+    --accent-soft: #e6e9f8;
+    --accent-text: #ffffff;
+    --overdue: #b5462b;
+    --overdue-soft: #f6e4dd;
+    --radius-card: 14px;
+    --radius-control: 6px;
+    --radius-full: 999px;
+    --shadow-lg: 0 18px 44px -14px rgba(30, 25, 15, 0.24);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161512;
+      --surface: #201e1a;
+      --surface-2: #282520;
+      --border: #332f29;
+      --border-strong: #463f37;
+      --text: #ece7dc;
+      --text-muted: #a79f90;
+      --text-faint: #736b5d;
+      --accent: #8a97ee;
+      --accent-soft: #282b44;
+      --accent-text: #14131a;
+      --overdue: #e08163;
+      --overdue-soft: #33221c;
+      --shadow-lg: 0 18px 44px -14px rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-lg);
+    padding: 36px 32px 30px;
+    margin: 24px;
+  }
+
+  .shell-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .shell-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: var(--accent);
+    color: var(--accent-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    font-size: 22px;
+  }
+  .shell-wordmark {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 500;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .no-tauri-note {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    padding: 10px 12px;
+    margin-bottom: 18px;
+    text-align: center;
+  }
+
+  .screen { text-align: center; }
+
+  .shell-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 500;
+    font-size: 19px;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  .shell-copy {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0 0 20px;
+    word-break: break-word;
+  }
+
+  .spinner {
+    width: 26px;
+    height: 26px;
+    margin: 4px auto 18px;
+    border-radius: var(--radius-full);
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: shell-spin 0.8s linear infinite;
+  }
+  @keyframes shell-spin { to { transform: rotate(360deg); } }
+
+  form { text-align: left; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
+  .field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .field input {
+    width: 100%;
+    height: 38px;
+    padding: 0 11px;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+  }
+  .field input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .hint {
+    font-size: 12px;
+    margin: 6px 0 2px;
+  }
+  .hint-bad { color: var(--overdue); }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  button {
+    font: inherit;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { background: var(--border); }
+  button.primary {
+    flex: 1;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+  button.primary:hover { opacity: 0.92; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="shell-card">
+    <div class="shell-brand">
+      <div class="shell-logo" aria-hidden="true">t</div>
+      <p class="shell-wordmark">taskman</p>
+    </div>
+
+    <div id="no-tauri-note" class="no-tauri-note" hidden>
+      This is the taskman desktop shell. It only does something useful when
+      opened inside the taskman.app (Tauri) — you're viewing it as a plain
+      static page, so there's nothing to connect to here.
+    </div>
+
+    <div id="screen-connecting" class="screen">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="shell-copy">Connecting to taskman&hellip;</p>
+    </div>
+
+    <div id="screen-error" class="screen" hidden>
+      <p class="shell-title">Can&rsquo;t reach taskman</p>
+      <p class="shell-copy" id="error-message"></p>
+      <form id="error-form">
+        <div class="field">
+          <label for="error-url-input">Server URL</label>
+          <input id="error-url-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:8484" />
+        </div>
+        <div id="error-hint" class="hint hint-bad" hidden></div>
+        <div class="actions">
+          <button type="submit" class="primary">Retry</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="screen-settings" class="screen" hidden>
+      <p class="shell-title">Settings</p>
+      <p class="shell-copy">Point taskman at a different server (e.g. a teammate's LAN address).</p>
+      <form id="settings-form">
+        <div class="field">
+          <label for="settings-url-input">Server URL</label>
+          <input id="settings-url-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://localhost:8484" />
+        </div>
+        <div id="settings-hint" class="hint hint-bad" hidden></div>
+        <div class="actions">
+          <button type="button" id="settings-cancel">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  function $(id) { return document.getElementById(id); }
+
+  function show(screenId) {
+    ["screen-connecting", "screen-error", "screen-settings"].forEach(function (id) {
+      $(id).hidden = id !== screenId;
+    });
+  }
+
+  function errText(err) {
+    if (typeof err === "string") return err;
+    if (err && typeof err.message === "string") return err.message;
+    return "Could not reach the server.";
+  }
+
+  // Guard: this file must be sanity-checkable in a plain browser (no Tauri)
+  // without throwing — it just shows a static note and stops there.
+  var hasTauri = typeof window.__TAURI__ !== "undefined" &&
+    window.__TAURI__ && window.__TAURI__.core &&
+    typeof window.__TAURI__.core.invoke === "function";
+
+  if (!hasTauri) {
+    $("no-tauri-note").hidden = false;
+    show("screen-error");
+    $("error-message").textContent =
+      "Tauri APIs are not available in a plain browser preview.";
+    $("error-form").addEventListener("submit", function (e) { e.preventDefault(); });
+    return;
+  }
+
+  var invoke = window.__TAURI__.core.invoke;
+
+  function currentUrl() {
+    return invoke("get_server_url").catch(function () { return ""; });
+  }
+
+  function goConnecting() {
+    show("screen-connecting");
+  }
+
+  function goError(message, url) {
+    $("error-message").textContent = message;
+    $("error-url-input").value = url || "";
+    $("error-hint").hidden = true;
+    show("screen-error");
+  }
+
+  function goSettings(url) {
+    $("settings-url-input").value = url || "";
+    $("settings-hint").hidden = true;
+    show("screen-settings");
+  }
+
+  function checkAndGo() {
+    goConnecting();
+    invoke("retry").catch(function (err) {
+      currentUrl().then(function (url) {
+        goError(errText(err), url);
+      });
+    });
+  }
+
+  $("error-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var url = $("error-url-input").value.trim();
+    goConnecting();
+    invoke("set_server_url", { url: url }).catch(function (err) {
+      goError(errText(err), url);
+    });
+  });
+
+  $("settings-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var url = $("settings-url-input").value.trim();
+    invoke("set_server_url", { url: url }).catch(function (err) {
+      $("settings-hint").textContent = errText(err);
+      $("settings-hint").hidden = false;
+    });
+  });
+
+  $("settings-cancel").addEventListener("click", function () {
+    checkAndGo();
+  });
+
+  // Boot: the native Settings… menu item navigates here with
+  // `?screen=settings`; anything else (fresh launch, Retry-triggered
+  // renavigation) means "check the configured server and go".
+  var screen = new URLSearchParams(window.location.search).get("screen");
+  if (screen === "settings") {
+    currentUrl().then(goSettings);
+  } else {
+    checkAndGo();
+  }
+})();
+</script>
+</body>
+</html>

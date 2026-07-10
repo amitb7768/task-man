@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into Tauri's generated Info.plist at bundle time (Tauri looks for a
+  file named exactly `Info.plist` next to `tauri.conf.json` — no extra config
+  needed). Only NSAppTransportSecurity is set here; everything else
+  (CFBundleIdentifier, executable name, etc.) comes from tauri.conf.json.
+
+  NSAllowsLocalNetworking = true is REQUIRED: the window loads plain
+  http://localhost:8484 by default, and can be pointed at a plain-http LAN
+  IP via Settings (docs/MACAPP_PLAN.md decision #2). Without this, ATS
+  blocks both cases in WKWebView.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

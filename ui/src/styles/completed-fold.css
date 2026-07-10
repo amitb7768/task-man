@@ -1,0 +1,53 @@
+/* ==========================================================================
+   CompletedFold (docs/DESIGN_V5_COMPLETED_FOLD.md) — shared disclosure for
+   done/cancelled tasks tucked out of active lists (Day/Week/Month + team
+   board). Owned by ui/src/components/CompletedFold.tsx.
+
+   Anatomy matches the planning views' section-header pattern (mono
+   uppercase label, muted, hairline) — see .pl-section-head in planning.css
+   and .context-strip-toggle, just with the arrow trailing the label per
+   the binding spec's "N completed ▸". Tokens only.
+   ========================================================================== */
+
+.completed-fold {
+  margin-top: 6px;
+}
+
+.completed-fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  padding: 10px 2px 4px;
+  color: var(--text-muted);
+}
+.completed-fold-toggle:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.completed-fold-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.completed-fold-arrow {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+.completed-fold-arrow.open {
+  transform: rotate(90deg);
+}
+
+.completed-fold-body {
+  margin-top: 8px;
+}

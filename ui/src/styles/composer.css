@@ -1,0 +1,700 @@
+/* ==========================================================================
+   Task Composer (design handoff "11 Task Composer") — the shared expandable
+   quick-add: 56px fast-path bar -> in-place creation card (title, notes,
+   Linear-style property pill row: assignee / due date / priority / repeat).
+   Owned + imported by ui/src/components/TaskComposer.tsx only (per
+   docs/DESIGN_V2_UI.md "CSS ownership"). Tokens only — no hardcoded hex,
+   except the toggle knob's white fill/shadow, which mirrors the existing
+   theme-invariant precedent at .td-switch-knob in task-detail.css (a
+   physical switch knob stays white in both themes, same as that control).
+   ========================================================================== */
+
+.task-composer {
+  width: 360px;
+  max-width: 100%;
+  flex: none;
+  align-self: flex-start;
+}
+.task-composer.expanded {
+  width: 480px;
+}
+
+/* ---- Collapsed rest bar ---- */
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 8px 0 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.composer-bar svg {
+  flex: none;
+}
+.composer-bar-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  padding: 0;
+  border-radius: 4px;
+}
+.composer-bar-input:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent) inset;
+}
+
+.composer-kbd {
+  flex: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.composer-kbd-lg {
+  padding: 3px 6px;
+}
+
+.composer-expand-btn {
+  flex: none;
+  width: 38px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.composer-expand-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.composer-expand-btn:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-created {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--done);
+  white-space: nowrap;
+}
+
+/* Collapsed-bar draft indicator (FIX: draft-loss footgun) — shown when an
+   Esc-preserved draft has non-title fields set; click re-expands. */
+.composer-draft-chip {
+  flex: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: none;
+  border-radius: 999px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.composer-draft-chip:hover {
+  color: var(--text);
+}
+.composer-draft-chip:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-error-row {
+  padding: 6px 4px 0;
+}
+.composer-card .composer-error-row {
+  padding: 0 18px 10px;
+}
+
+/* ---- Expanded card ---- */
+.composer-card {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
+  overflow: visible;
+}
+
+.composer-top {
+  padding: 16px 18px 4px;
+}
+.composer-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.composer-title-input {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 0 0 6px;
+  border-radius: 4px;
+  color: var(--text);
+}
+.composer-top-row .composer-title-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Close button (usability fix: the expanded card previously had no
+   discoverable way to close it — no button, click-outside only closed pill
+   popovers, and Esc only worked while focus was inside the card). Same
+   visual language as TaskDetail's close button (.td-icon-btn in
+   task-detail.css) and this file's own .composer-expand-btn: transparent,
+   --text-muted, hover surface + --text, focus-visible ring. Click collapses
+   with the draft preserved — identical semantics to Esc and the
+   outside-click handler (TaskComposer.tsx's collapse()). */
+.composer-close-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.composer-close-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.composer-close-btn:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+.composer-notes-input {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  min-height: 38px;
+  padding: 0;
+  border-radius: 4px;
+  resize: none;
+}
+.composer-title-input:focus-visible,
+.composer-notes-input:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent) inset;
+}
+
+/* ---- Property pill row ---- */
+.composer-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 18px 16px;
+}
+
+.composer-pill-wrap {
+  position: relative;
+}
+
+.composer-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.composer-pill svg {
+  flex: none;
+}
+.composer-pill.set {
+  border-style: solid;
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+.composer-pill.active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.composer-pill:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-pill-avatar {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+}
+.composer-pill-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 999px;
+}
+.composer-pill-mono {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* ---- Popovers (one at a time, anchored under the pill) ---- */
+.composer-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+}
+
+.composer-popover-assignee,
+.composer-popover-priority {
+  padding: 6px;
+}
+.composer-popover-assignee {
+  min-width: 220px;
+}
+.composer-popover-priority {
+  min-width: 170px;
+}
+.composer-popover-due {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.composer-popover-repeat {
+  min-width: 260px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.composer-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text);
+  transition: background 0.1s;
+  text-align: left;
+}
+.composer-popover-row:hover,
+.composer-popover-row.active {
+  background: var(--surface-2);
+}
+.composer-popover-row:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-popover-avatar {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+.composer-popover-avatar-unassigned {
+  background: var(--surface-2);
+  color: var(--text-faint);
+}
+.composer-popover-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-popover-check {
+  flex: none;
+  color: var(--accent);
+  font-size: 13px;
+}
+.composer-popover-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 999px;
+  display: inline-block;
+}
+.composer-popover-dot.none {
+  background: transparent;
+  border: 1.5px solid var(--border-strong);
+}
+
+/* ---- Due popover ---- */
+.composer-date-input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.composer-date-input:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+.composer-due-actions {
+  display: flex;
+  gap: 8px;
+}
+.composer-due-today,
+.composer-due-clear {
+  flex: 1;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.composer-due-today {
+  color: var(--text);
+}
+.composer-due-clear {
+  color: var(--text-muted);
+}
+.composer-due-today:focus-visible,
+.composer-due-clear:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+/* ---- Repeat popover ---- */
+.composer-preset-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.composer-preset-btn {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: all 0.12s;
+}
+.composer-preset-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.composer-preset-btn:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.composer-interval-input {
+  width: 52px;
+  height: 30px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  padding: 0;
+}
+.composer-interval-input:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-weekday-row {
+  display: flex;
+  gap: 5px;
+}
+.composer-weekday-chip {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+.composer-weekday-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.composer-weekday-chip:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-repeat-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.composer-repeat-clear {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.composer-repeat-clear:hover {
+  color: var(--overdue);
+  background: transparent;
+}
+.composer-repeat-done {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.composer-repeat-clear:focus-visible,
+.composer-repeat-done:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+/* ---- Footer: create-more toggle + kbd hint + Create button ---- */
+.composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.composer-createmore-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.composer-createmore-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.composer-createmore-btn.on .composer-createmore-label {
+  color: var(--text);
+}
+.composer-createmore-btn:focus-visible .composer-switch {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.composer-switch {
+  flex: none;
+  width: 36px;
+  height: 21px;
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--border-strong);
+  display: flex;
+  transition: background 0.16s;
+}
+.composer-switch.on {
+  background: var(--accent);
+}
+.composer-switch-knob {
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transform: translateX(0);
+  transition: transform 0.16s;
+}
+.composer-switch.on .composer-switch-knob {
+  transform: translateX(15px);
+}
+
+.composer-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.composer-create-btn {
+  height: 36px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.composer-create-btn:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.composer-create-btn:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+@media (max-width: 480px) {
+  .task-composer,
+  .task-composer.expanded {
+    width: 100%;
+  }
+}
+
+/* ==========================================================================
+   Personal context (docs/DESIGN_V31_COMPOSER.md "v3.2 — Personal rollout") —
+   the App-header variant used on the Day/Week/Month tabs.
+   ========================================================================== */
+
+/* Collapsed-bar horizon+period badge — same visual language as the old
+   QuickAdd's .quick-add-badge/.quick-add-period (index.css), reauthored here
+   since composer.css owns this component's styling; shown only in personal
+   context (team's composer-bar has no badge). */
+.composer-horizon-badge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.composer-horizon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+.composer-horizon-period {
+  flex: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* The header's .header-quickadd slot (index.css) is a fixed-width box —
+   fill it exactly rather than the team page's own 360/480px sizing. */
+.task-composer.personal {
+  width: 100%;
+}
+
+/* Header-anchored OVERLAY expansion: the reserved footprint stays pinned at
+   the collapsed bar's height so the app shell never reflows (main-header /
+   header-controls / period-nav stay put); the expanded card floats above the
+   content as an absolutely positioned panel — same precedent as the old
+   QuickAdd preview panel, vs. the team page's in-flow push. */
+.task-composer.personal.expanded {
+  position: relative;
+  height: 56px;
+}
+.task-composer.personal.expanded .composer-card {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 480px;
+  max-width: calc(100vw - 64px);
+  z-index: 20;
+}

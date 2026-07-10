@@ -1,0 +1,352 @@
+/* ==========================================================================
+   Attention (design handoff "06 Attention")
+   Owned by ui/src/views/AttentionView.tsx — do not import elsewhere.
+   ========================================================================== */
+
+.attention-view {
+  display: flex;
+  flex-direction: column;
+  /* Breathing room so the floating bulk bar never covers the last row. */
+  padding-bottom: 96px;
+}
+
+/* ---- Global Select all / Clear ---- */
+.attention-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
+.attn-select-all {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.attn-select-all:hover {
+  background: var(--surface-2);
+}
+.attn-select-all:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- Sections ---- */
+.attention-sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.attn-section {
+  margin-bottom: 32px;
+}
+.attn-section:last-child {
+  margin-bottom: 0;
+}
+
+.attn-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 14px;
+}
+
+.attn-section-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+
+.attn-section-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.attn-section-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.attn-section-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.attn-section-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  max-width: 44%;
+  text-align: right;
+}
+
+/* ---- Selection checkbox (shared by rows + section select-all) ---- */
+.attn-check,
+.attn-check-btn {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s;
+}
+.attn-check.checked,
+.attn-check-btn.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.attn-check-btn {
+  cursor: pointer;
+}
+.attn-check-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- Rows (56px, bespoke — NOT the shared .task-row) ---- */
+.attn-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attn-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  padding: 0 14px 0 12px;
+  height: 56px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.attn-row:hover {
+  border-color: var(--border-strong);
+}
+.attn-row.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.attn-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.attn-tick {
+  width: 3px;
+  height: 26px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.attn-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.attn-title {
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attn-reason {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attn-chip {
+  flex: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.attn-chip.overdue {
+  color: var(--overdue);
+  background: var(--overdue-soft);
+}
+.attn-chip.slipped {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+/* ---- Bulk action bar (floats bottom-center, slides up when ≥1 selected) */
+.attn-bulkbar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 120px);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 90; /* below .toast (100): a fresh toast reads over the bar */
+  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s;
+}
+.attn-bulkbar.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.attn-bulk-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.attn-bulk-clear {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.attn-bulk-clear:hover {
+  background: var(--surface-2);
+}
+
+.attn-bulk-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.attn-bulk-reschedule {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.attn-bulk-reschedule:hover:not(:disabled) {
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+.attn-bulk-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.attn-bulk-done:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--done);
+  color: var(--done);
+}
+
+.attn-bulk-delete {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.attn-bulk-delete:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--overdue);
+  color: var(--overdue);
+}
+
+.attn-bulkbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- Empty state ---- */
+.attention-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 64px 32px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.attention-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: var(--done-soft);
+  color: var(--done);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attention-empty-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--text);
+}
+
+.attention-empty-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 40ch;
+  line-height: 1.5;
+}

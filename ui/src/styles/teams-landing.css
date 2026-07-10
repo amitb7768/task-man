@@ -1,0 +1,247 @@
+/* ==========================================================================
+   Teams landing (design handoff "09 Teams Landing")
+   Owned by ui/src/views/TeamsLanding.tsx — do not import elsewhere.
+   Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+   ========================================================================== */
+
+.teams-landing {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Toolbar: "New team" affordance.
+   The mock puts this button in the app-shell chrome header; App.tsx's
+   header-controls area is scoped to periodNav/quickAdd only (out of this
+   view's ownership), so it lives here instead, one level into the content —
+   same button, same position relative to the grid, just anchored to the
+   view instead of the shared chrome. ---- */
+.tl-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.tl-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+.tl-new-btn:hover {
+  background: var(--accent);
+  opacity: 0.92;
+}
+
+/* ---- Inline "new team" form ---- */
+.tl-new-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-md);
+}
+.tl-new-avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+.tl-new-form input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 20px;
+  padding: 0;
+}
+.tl-new-cancel {
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tl-new-confirm {
+  flex: none;
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ---- Team cards ---- */
+.tl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .tl-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tl-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s,
+    transform 0.12s;
+}
+.tl-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.tl-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tl-card-name {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.1;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.tl-overdue-pill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--overdue);
+  background: var(--overdue-soft);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.tl-overdue-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--overdue);
+  flex: none;
+}
+
+.tl-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tl-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.tl-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+.tl-avatar + .tl-avatar {
+  margin-left: -8px;
+}
+.tl-avatar-more {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tl-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* ---- Empty state ---- */
+.tl-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 64px 32px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.tl-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tl-empty-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--text);
+}
+.tl-empty-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 40ch;
+  line-height: 1.5;
+}

@@ -1,0 +1,1078 @@
+/* ==========================================================================
+   Team page (design handoff "10 Team Page") — members & tasks.
+   Owned by ui/src/views/TeamPage.tsx — do not import elsewhere.
+   Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+
+   This view renders its own in-content header (docs/DESIGN_V3_TEAMS.md),
+   replacing the app-shell's standard header/content-scroll wrapper for the
+   duration of the team page (see App.tsx's `inTeamPage` branch) — so this
+   root element owns the full remaining height of <main>.
+   ========================================================================== */
+
+.team-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+}
+
+/* ---- Header ---- */
+.tp-header {
+  flex: none;
+  padding: 20px 32px 0;
+}
+
+.tp-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  margin-bottom: 10px;
+}
+.tp-back:hover {
+  color: var(--text);
+}
+.tp-back svg {
+  flex: none;
+}
+
+.tp-header-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-bottom: 18px;
+}
+
+.tp-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tp-team-name {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-status-chips {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.tp-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.tp-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+.tp-chip-todo {
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.tp-chip-todo .tp-chip-dot {
+  background: var(--border-strong);
+}
+.tp-chip-prog {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.tp-chip-prog .tp-chip-dot {
+  background: var(--warn);
+}
+.tp-chip-done {
+  color: var(--done);
+  background: var(--done-soft);
+}
+.tp-chip-done .tp-chip-dot {
+  background: var(--done);
+}
+
+.tp-members-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tp-members-btn:hover {
+  background: var(--surface-2);
+}
+
+/* ---- Avatar filter row ---- */
+.tp-filter-row {
+  flex: none;
+  padding: 18px 32px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.tp-chip-filter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 14px 0 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.tp-chip-filter:hover {
+  border-color: var(--border-strong);
+}
+.tp-chip-filter.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tp-chip-filter-avatar {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tp-chip-overdue-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  background: var(--overdue);
+  color: var(--accent-text);
+  border: 2px solid var(--surface);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tp-chip-filter-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.tp-chip-filter.active .tp-chip-filter-name {
+  color: var(--accent);
+}
+.tp-chip-filter-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---- Toolbar: group toggle + open count + quick-add ---- */
+.tp-toolbar {
+  flex: none;
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+/* FIX: the expanded 480px composer card floats the toolbar's left-side
+   controls to its vertical center against align-items:center. Pin to the
+   top only while expanded, so the (correct) collapsed-state centering is
+   untouched — .task-composer.expanded is a class the composer already sets. */
+.tp-toolbar:has(.task-composer.expanded) {
+  align-items: flex-start;
+}
+.tp-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tp-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tp-group-toggle.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tp-open-label {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.tp-quickadd {
+  width: 360px;
+  flex: none;
+  max-width: 100%;
+}
+.tp-quickadd .quick-add-field {
+  height: 38px;
+  padding: 0 12px;
+  gap: 10px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+.tp-quickadd .quick-add-badge,
+.tp-quickadd .quick-add-period {
+  display: none;
+}
+.tp-quickadd .quick-add-field input {
+  font-size: 14px;
+}
+
+/* ---- List ---- */
+.tp-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 32px 120px;
+}
+.tp-list-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.tp-section {
+  margin-bottom: 24px;
+}
+.tp-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 12px;
+}
+.tp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex: none;
+  background: var(--border-strong);
+}
+.tp-section-head.overdue .tp-dot {
+  background: var(--overdue);
+}
+.tp-section-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tp-section-head.overdue .tp-section-label {
+  color: var(--overdue);
+}
+.tp-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.tp-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.tp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-list-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 48px 32px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+/* ---- Grouped mode sections ---- */
+.tp-group {
+  margin-bottom: 26px;
+}
+.tp-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 12px;
+}
+.tp-group-avatar {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.tp-group-name {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tp-group-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.tp-group-empty {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 6px 2px 2px;
+}
+
+/* Inline "Add for ‹name›…" row — the shared QuickAdd primitive, stripped to
+   a bare icon + input (no card chrome). */
+.tp-group-add {
+  margin-top: 8px;
+}
+.tp-group-add .quick-add-field {
+  height: auto;
+  padding: 0 0 0 2px;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.tp-group-add .quick-add-field::before {
+  content: "+";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+}
+.tp-group-add .quick-add-badge,
+.tp-group-add .quick-add-period,
+.tp-group-add .quick-add-field kbd,
+.tp-group-add .quick-add-legend {
+  display: none;
+}
+.tp-group-add .quick-add-field input {
+  font-size: 13.5px;
+}
+.tp-group-add .quick-add-panel:not(:has(.quick-add-preview)) {
+  display: none;
+}
+.tp-group-add .quick-add-panel {
+  border-radius: 8px;
+}
+
+/* ---- Row: hover/selection-revealed checkbox wrapping a shared TaskRow ----
+   TaskRow's own markup can't grow a checkbox slot (docs/DESIGN_V3_TEAMS.md
+   scopes TaskRow's allowed change to the assigneeAvatar prop only), so the
+   checkbox is a sibling the row visually merges with: resting state shows
+   just the TaskRow (checkbox collapsed to width 0); hover, or any active
+   selection in the list, reveals it. */
+.tp-row {
+  display: flex;
+  align-items: center;
+}
+.tp-row-check {
+  flex: none;
+  width: 0;
+  height: 19px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  margin-right: 0;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    opacity 0.12s,
+    width 0.12s,
+    margin 0.12s;
+}
+.tp-row:hover .tp-row-check,
+.tp-row.tp-row-any .tp-row-check {
+  width: 19px;
+  opacity: 1;
+  margin-right: 8px;
+}
+.tp-row.tp-row-checked .tp-row-check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.tp-row-check svg {
+  width: 11px;
+  height: 11px;
+}
+.tp-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.tp-row.tp-row-checked .tp-row-body .task-row {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* ---- Bulk bar (same mechanics as Attention's, docs/DESIGN_V3_TEAMS.md) ---- */
+.tp-bulkbar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 120px);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 48px);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 90;
+  transition:
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s;
+}
+.tp-bulkbar.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.tp-bulk-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+.tp-bulk-clear {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.tp-bulk-clear:hover {
+  background: var(--surface-2);
+}
+.tp-bulk-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 3px;
+}
+.tp-bulk-reassign {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.tp-bulk-reassign span {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.tp-bulk-reassign select {
+  height: 26px;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+  padding: 0 2px;
+}
+.tp-bulk-unassign,
+.tp-bulk-done {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.tp-bulk-unassign:hover {
+  border-color: var(--border-strong);
+}
+.tp-bulk-done:hover {
+  border-color: var(--done);
+  color: var(--done);
+}
+.tp-bulk-due {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.tp-bulk-due svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.tp-bulk-due input[type="date"] {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  width: 112px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+}
+.tp-bulk-delete {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--overdue);
+  background: var(--overdue-soft);
+  color: var(--overdue);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ---- Members panel (452px slide-in, same mechanics as task detail) ---- */
+.tp-members-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 10, 0.34);
+  z-index: 42;
+  animation: tp-backdrop-in 0.2s ease both;
+}
+.tp-members-backdrop.closing {
+  animation: tp-backdrop-out 0.2s ease both;
+}
+@keyframes tp-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tp-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.tp-members-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 452px;
+  max-width: 100vw;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 43;
+  display: flex;
+  flex-direction: column;
+  animation: tp-panel-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.tp-members-panel.closing {
+  animation: tp-panel-out 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes tp-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes tp-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.tp-mp-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.tp-mp-title {
+  flex: 1;
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 20px;
+}
+.tp-mp-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.tp-mp-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.tp-mp-close:hover {
+  background: var(--surface-2);
+}
+
+.tp-mp-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+.tp-mp-list {
+  padding: 8px 18px;
+}
+/* ---- Member block: row + (admin-only) credential controls below it.
+   The row itself is unpadded/unbordered; .tp-mp-member owns the
+   border-bottom + vertical rhythm so admin-only extra content (reveal box,
+   enable-login form, reset/disable actions) reads as part of the same
+   member, not a separate list item. ---- */
+.tp-mp-member {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tp-mp-member-disabled {
+  opacity: 0.55;
+}
+.tp-mp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tp-mp-avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tp-mp-id {
+  flex: 1;
+  min-width: 0;
+}
+.tp-mp-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ---- Auth: read-only note, role badge, disabled tag, credential controls
+   (docs/AUTH_FEATURES.md "UI changes" — admin gains enable-login/reset/
+   disable in this panel; USER sees a read-only roster). ---- */
+.tp-mp-readonly-note {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 10px 0 4px;
+}
+
+.tp-mp-role-badge {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+}
+.tp-mp-role-badge.admin {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.tp-mp-disabled-tag {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--overdue);
+  background: var(--overdue-soft);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+}
+
+.tp-mp-cred-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-left: 50px; /* aligns under the name, past the 38px avatar + gap */
+}
+.tp-mp-link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.tp-mp-link-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.tp-mp-cred-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.tp-mp-cred-hint .link {
+  font-size: 12px;
+}
+
+.tp-mp-disable-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tp-mp-disable-toggle input {
+  width: auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.tp-mp-enable-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 50px;
+}
+.tp-mp-enable-form select {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+.tp-mp-enable-form button {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.tp-mp-reveal {
+  margin-left: 50px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tp-mp-reveal-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.tp-mp-reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tp-mp-reveal-pass {
+  flex: 1;
+  min-width: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 9px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.tp-mp-reveal-row button {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.tp-mp-reveal-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.tp-mp-reveal-done {
+  align-self: flex-start;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+/* ---- Board dimming for disabled members (docs/AUTH_FEATURES.md: "Disabled
+   users dimmed on boards"). ---- */
+.tp-chip-filter.disabled {
+  opacity: 0.55;
+}
+.tp-group.tp-group-disabled {
+  opacity: 0.55;
+}
+.tp-group-head .tp-mp-disabled-tag {
+  margin-right: 2px;
+}
+.tp-mp-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tp-mp-email {
+  color: var(--text-faint);
+}
+.tp-mp-icon-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tp-mp-icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.tp-mp-icon-btn.tp-mp-danger:hover {
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+
+.tp-mp-row-editing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tp-mp-row-editing input {
+  width: 100%;
+}
+.tp-mp-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tp-mp-add {
+  padding: 16px 18px;
+  border-top: 1px solid var(--border);
+}
+.tp-mp-add-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.tp-mp-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tp-mp-add-form input {
+  height: 38px;
+  padding: 0 12px;
+}
+.tp-mp-add-row2 {
+  display: flex;
+  gap: 8px;
+}
+.tp-mp-add-row2 input {
+  flex: 1;
+  min-width: 0;
+}
+.tp-mp-add-row2 button {
+  flex: none;
+  height: 38px;
+  padding: 0 18px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tp-mp-footer {
+  flex: none;
+  padding: 16px 18px;
+  border-top: 1px solid var(--border);
+}
+.tp-mp-rename {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.tp-mp-rename input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+}
+.tp-mp-rename button {
+  flex: none;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tp-mp-delete {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-faint);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.tp-mp-delete:not(:disabled) {
+  cursor: pointer;
+  color: var(--overdue);
+  border-color: var(--overdue);
+  background: var(--overdue-soft);
+}
+.tp-mp-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.tp-mp-delete-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  text-align: center;
+}

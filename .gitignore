@@ -1,0 +1,34 @@
+# --- Dependencies & build output ---
+node_modules/
+ui/dist/
+ui/dist-ssr/
+
+# Go compiled binaries (the server binary is built locally, never committed)
+taskman
+taskman-bin
+server/taskman
+
+# Rust / Tauri build output is also covered by src-tauri/.gitignore
+src-tauri/target/
+src-tauri/gen/
+
+# --- Secrets & local config ---
+# The server takes config from env vars (ADMIN_EMAIL, MONGO_URI, ...); never commit them.
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Design-tool exports (NOT part of the shipped project) ---
+# Raw Claude-design handoff bundles: bulky, duplicated, and they carry the
+# `support.js` prototype runtime the handoff README says not to ship. The
+# authored design decisions live in docs/DESIGN_*.md, which ARE committed.
+design_handoff_taskman_ui/
+design_handoff_taskman_ui 2/
+Taskman UI redesign (2)/
+
+# --- OS / editor cruft ---
+.DS_Store
+.vscode/
+.idea/
+*.swp

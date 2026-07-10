@@ -1,0 +1,612 @@
+/* ==========================================================================
+   Task detail slide-in panel (design handoff "05 Task Detail").
+   Owned + imported by ui/src/components/TaskDetail.tsx only (per
+   docs/DESIGN_V2_UI.md "CSS ownership" — each view/component's styles live
+   in their own ui/src/styles/<name>.css, never in index.css). All colors
+   come from the tokens defined once in index.css — no hardcoded hex here.
+   ========================================================================== */
+
+/* ---- Backdrop ---- */
+.td-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 10, 0.34);
+  z-index: 40;
+  animation: td-backdrop-in 0.2s ease both;
+}
+.td-backdrop.closing {
+  animation: td-backdrop-out 0.2s ease both;
+}
+@keyframes td-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes td-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---- Panel shell ---- */
+.td-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 452px;
+  max-width: 100vw;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  animation: td-panel-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.td-panel.closing {
+  animation: td-panel-out 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes td-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes td-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ---- Header ---- */
+.td-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Header status control is the shared 20px StatusControl, scoped up to the
+   26px "panel chrome" size the handoff specifies for this one location —
+   done here (not in the shared component/index.css) since the component
+   itself stays untouched. */
+.td-header .status-control {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+.td-header .status-control-glyph {
+  font-size: 14px;
+}
+
+.td-status-label {
+  flex: 1;
+  min-width: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-icon-btn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 7px;
+}
+.td-icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.td-icon-btn.td-icon-danger {
+  color: var(--text-faint);
+}
+.td-icon-btn.td-icon-danger:hover:not(:disabled) {
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+
+/* ---- Scroll body ---- */
+.td-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.td-back-link {
+  display: inline-block;
+  margin: 14px 24px -4px;
+  font-size: 12px;
+}
+
+/* ---- Title + notes ---- */
+.td-titleblock {
+  padding: 22px 24px 18px;
+}
+.td-title {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  padding: 2px 0 8px;
+  color: var(--text);
+  border-radius: 4px;
+}
+.td-notes {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  min-height: 44px;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+.td-title:focus-visible,
+.td-notes:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent) inset;
+}
+
+/* ---- Property rows ---- */
+.td-props {
+  padding: 6px 24px 18px;
+  border-top: 1px solid var(--border);
+}
+.td-row {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+}
+.td-props > .td-row:first-child {
+  border-top: none;
+}
+.td-row-label {
+  width: 110px;
+  flex: none;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Priority segmented control */
+.td-seg {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+.td-seg-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.12s;
+}
+.td-seg-btn:hover:not(.active) {
+  color: var(--text);
+}
+.td-seg-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.td-seg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  display: inline-block;
+  flex: none;
+}
+.td-seg-btn:focus-visible,
+.td-icon-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+/* Due date */
+.td-due-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+.td-clear-btn {
+  font-size: 12px;
+  color: var(--text-faint);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.td-clear-btn:hover:not(:disabled) {
+  color: var(--overdue);
+  background: transparent;
+}
+.td-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Horizon (read-only) */
+.td-horizon-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.td-horizon-name {
+  font-weight: 500;
+  color: var(--text);
+}
+.td-horizon-period {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---- Recurrence ---- */
+.td-recur {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.td-recur-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.td-recur-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.td-switch {
+  flex: none;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  background: var(--border-strong);
+  display: flex;
+  transition: background 0.16s;
+}
+.td-switch.on {
+  background: var(--accent);
+}
+.td-switch-knob {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transform: translateX(0);
+  transition: transform 0.16s;
+}
+.td-switch.on .td-switch-knob {
+  transform: translateX(16px);
+}
+.td-switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+.td-recur-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.td-presets,
+.td-weekday-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.td-preset-btn,
+.td-weekday-chip {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface);
+  color: var(--text-muted);
+  transition: all 0.12s;
+}
+.td-preset-btn.active,
+.td-weekday-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.td-preset-btn:focus-visible,
+.td-weekday-chip:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+.td-interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.td-interval-input {
+  width: 52px;
+  height: 30px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  padding: 0;
+}
+.td-dom-input {
+  width: 64px;
+  height: 30px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  padding: 0;
+}
+
+.td-summary {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+
+/* ---- Subtasks ---- */
+.td-subtasks {
+  padding: 16px 24px 28px;
+  border-top: 1px solid var(--border);
+}
+.td-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.td-sub-head-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.td-sub-progress-chip {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex: none;
+}
+.td-sub-progress-track {
+  flex: 1;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.td-sub-progress-fill {
+  height: 100%;
+  background: var(--done);
+  border-radius: 999px;
+  transition: width 0.2s;
+}
+
+.td-sub-list {
+  display: flex;
+  flex-direction: column;
+}
+.td-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.td-sub-row:hover .td-sub-title {
+  color: var(--accent);
+}
+
+.td-sub-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.td-sub-check.done {
+  border-color: var(--done);
+  background: var(--done);
+  color: var(--accent-text);
+}
+.td-sub-check:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+.td-sub-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.td-sub-title.done {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.td-sub-horizon-pill {
+  flex: none;
+  font-size: 10.5px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.td-sub-delete {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: 5px;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.td-sub-delete:hover {
+  opacity: 1;
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+.td-sub-delete:focus-visible {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+/* Inline add-subtask row */
+.td-sub-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0 0;
+}
+.td-sub-add-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.td-sub-add-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+.td-sub-add-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent) inset;
+}
+.td-sub-add-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ---- Footer ---- */
+.td-footer {
+  flex: none;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.td-save-status {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.td-footer-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .td-panel {
+    width: 100vw;
+  }
+}

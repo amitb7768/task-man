@@ -1,0 +1,151 @@
+/* ==========================================================================
+   Planning views (Day / Week / Month), Search, and the collapsible context
+   strip. Imported by DayView / WeekView / MonthView / SearchView /
+   ContextStrip. Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+
+   Patterns lifted from the handoff:
+   - "04 All Tasks" group headers: dot · mono uppercase label · count ·
+     hairline rule filling the rest of the line.
+   - "02 App Shell": the Day view's "This week · for context" strip — a
+     mono toggle with a rotating arrow and a 2px hairline-indented list.
+   ========================================================================== */
+
+.pl-view {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ---- Section header: dot · label · count · rule ---- */
+.pl-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+  margin-bottom: 12px;
+}
+.pl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex: none;
+  background: var(--text-faint);
+}
+.pl-dot.accent {
+  background: var(--accent);
+}
+.pl-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.pl-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.pl-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  min-width: 24px;
+}
+
+/* Muted single-line empty state (the fancy dashed panels are reserved for
+   All tasks / Attention). */
+.pl-empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 2px;
+}
+
+/* Per-day / per-week subsections inside Week & Month views. */
+.pl-subsections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ==========================================================================
+   Context strip ("02 App Shell": collapsible "This week · for context")
+   ========================================================================== */
+.context-strip-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0 0 4px;
+  color: var(--text-muted);
+}
+.context-strip-toggle:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+.context-strip-arrow {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+.context-strip-arrow.open {
+  transform: rotate(90deg);
+}
+.context-strip-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.context-strip-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.context-strip-body {
+  margin-top: 8px;
+  margin-left: 6px;
+  padding: 2px 0 0 14px;
+  border-left: 2px solid var(--border);
+}
+
+/* ==========================================================================
+   Search toolbar (system toolbar pattern: text input + native selects)
+   ========================================================================== */
+.pl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pl-toolbar-input {
+  flex: 1 1 220px;
+  min-width: 200px;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.pl-toolbar-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.pl-toolbar select {
+  flex: none;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Apply a persisted explicit theme choice before first paint, so
+      // switching away from the OS default doesn't flash the wrong theme.
+      // Kept in sync at runtime by App.tsx (see readStoredTheme/applyTheme).
+      (function () {
+        try {
+          var v = localStorage.getItem("taskman-theme");
+          if (v === "light" || v === "dark") {
+            document.documentElement.setAttribute("data-theme", v);
+          }
+        } catch (e) {
+          /* localStorage unavailable — fall back to system */
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>taskman</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

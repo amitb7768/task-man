@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell-local",
+  "description": "Custom taskman commands (get_server_url, set_server_url, retry, open_settings), granted ONLY to window `main` while it is showing the bundled local shell. `local` defaults to true and `remote` is intentionally omitted, so once this window navigates to the remote server's SPA origin, these permissions no longer apply there — a compromised or hostile server cannot invoke any native command.",
+  "windows": ["main"],
+  "platforms": ["macOS"],
+  "permissions": [
+    "core:default",
+    "allow-get-server-url",
+    "allow-set-server-url",
+    "allow-retry",
+    "allow-open-settings"
+  ]
+}

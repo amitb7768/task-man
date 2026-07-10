@@ -1,0 +1,334 @@
+/* ==========================================================================
+   Auth: login / forced-change / change-password panel + sidebar identity
+   block (docs/AUTH_FEATURES.md "UI changes"). Owned by ui/src/auth/** — no
+   external mockup for these exists, so this follows the existing card
+   anatomy (surface bg, hairline border, radius-card, shadow-lg for a
+   floating card on plain bg — same recipe as .tl-new-form / .tp-members-panel)
+   plus the Newsreader-serif-title / mono-eyebrow language used everywhere
+   else in the app. Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+
+   The sidebar identity block rules at the bottom target .sidebar-footer (an
+   index.css class) via a compound selector (.sidebar-footer.has-auth-identity)
+   — that combinator always outranks the plain .sidebar-footer rule in
+   index.css regardless of stylesheet import order, so this is a safe
+   override without touching index.css itself (CSS ownership: "if a
+   shared-primitive style is unavoidable, put it in auth.css scoped").
+   ========================================================================== */
+
+/* ---- Full-viewport centered screen (login / forced change) ---- */
+.auth-screen {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  padding: 40px 34px 34px;
+  margin: 24px;
+}
+
+.auth-card-panel {
+  max-width: 400px;
+  margin: 0;
+}
+
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.auth-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Newsreader", serif;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.auth-wordmark {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0;
+}
+
+.auth-center {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.auth-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0 0 8px;
+  text-align: center;
+}
+
+.auth-copy {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 0 0 22px;
+}
+
+/* ---- Form ---- */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.auth-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.auth-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+.auth-field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.auth-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: -6px;
+}
+.auth-hint-bad {
+  color: var(--overdue);
+}
+
+.auth-error {
+  margin: -4px 0 2px;
+  text-align: center;
+}
+
+.auth-submit {
+  height: 42px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+.auth-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.auth-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+.auth-form-actions .auth-submit {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* ---- Forced-change screen's sign-out escape hatch ---- */
+.auth-signout-row {
+  text-align: center;
+  margin-top: 16px;
+}
+.auth-signout-row button.link {
+  font-size: 13px;
+}
+
+/* ---- Change-password panel (non-forced, dismissible overlay) ---- */
+.auth-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 10, 0.34);
+  z-index: 120;
+  animation: auth-fade-in 0.16s ease both;
+}
+.auth-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 121;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  animation: auth-fade-in 0.16s ease both;
+}
+.auth-panel .auth-card {
+  pointer-events: auto;
+}
+@keyframes auth-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.auth-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.auth-panel-head .auth-title {
+  margin: 0;
+  text-align: left;
+}
+.auth-panel-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 7px;
+}
+.auth-panel-close:hover {
+  background: var(--surface-2);
+}
+.auth-panel-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Sidebar footer identity block (docs/AUTH_FEATURES.md: "Sidebar footer:
+   signed-in identity (avatar+name) + logout; theme toggle stays").
+   ========================================================================== */
+.sidebar-footer.has-auth-identity {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.sidebar-footer.has-auth-identity.collapsed {
+  align-items: center;
+}
+
+.auth-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.has-auth-identity.collapsed .auth-identity {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-avatar {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-identity-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.auth-identity-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-role-badge {
+  align-self: flex-start;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+}
+.auth-role-badge.admin {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.auth-identity-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.has-auth-identity.collapsed .auth-identity-actions {
+  flex-direction: column;
+}
+
+.auth-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-control);
+}
+.auth-icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.auth-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
