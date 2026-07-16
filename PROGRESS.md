@@ -322,3 +322,25 @@ initialized, user hasn't asked for commits).
    real multi-user/auth, manual ordering, recurring-task edit ergonomics.
 
 **Key paths:** contract `docs/DESIGN.md` · research `docs/research-task-tools.md` · run: `make mongo ui run` → http://localhost:8484
+
+---
+
+## Session 2026-07-16 — v6 planning: week-scoped team board, rollover & history
+
+Research (2 Sonnet explorers: UI + server) → contract locked with user:
+- New server-managed `weekOf` ("YYYY-Www") field on team tasks; bumped to
+  current week on terminal transition; ADMIN-only patchable (rollover's move).
+- Board: dated open tasks always visible; undated open + completed scoped to
+  `weekOf == currentWeek`; `staleOpen` count feeds an ADMIN-only banner.
+- Rollover: ADMIN-only, manual, GET /api/teams/{id}/rollover + client-side
+  bulk PATCH (move/done/cancel); recurring instances badged + skipped by move.
+- History: per-team GET /api/teams/{id}/history?offset&limit (first pagination
+  in the codebase), status ∈ {done,cancelled} ∧ weekOf < W, createdAt desc,
+  Load-more UI, entry via completed-fold footer link.
+
+Artifacts: docs/DESIGN_V6_WEEK_ROLLOVER.md (contract),
+docs/DESIGN_PROMPT_WEEK_ROLLOVER.md (Claude-design brief, 3 screens).
+Also added CLAUDE.md context files (root, server/, ui/).
+
+NEXT: user runs the design prompt in claude.ai → bring mockups back → build
+(server field+backfill+endpoints, TeamPage view state board|rollover|history).
