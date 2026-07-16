@@ -1,0 +1,413 @@
+/* ==========================================================================
+   Rollover — ADMIN-only triage queue (design handoff "13 Rollover";
+   docs/DESIGN_V6_WEEK_ROLLOVER.md "Rollover").
+   Owned by ui/src/views/TeamRollover.tsx — do not import elsewhere.
+   Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+
+   This view renders its own full-screen header/body, replacing the team
+   page's board content for the duration of the rollover screen (TeamPage
+   early-returns this component when its view-local `view` state is
+   "rollover") — this root element owns the full remaining height of <main>.
+   ========================================================================== */
+
+.ro-page {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+}
+
+/* ---- Header ---- */
+.ro-header {
+  flex: none;
+  padding: 20px 32px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.ro-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  margin-bottom: 10px;
+}
+.ro-back:hover {
+  color: var(--text);
+}
+.ro-back svg {
+  flex: none;
+}
+
+.ro-header-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.ro-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ro-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.ro-team-name {
+  font-family: "Newsreader", serif;
+  font-size: 20px;
+  color: var(--text-faint);
+}
+.ro-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.ro-select-all {
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.ro-select-all:hover {
+  background: var(--surface-2);
+}
+
+/* ---- Body ---- */
+.ro-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px 120px;
+}
+.ro-body-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.ro-group {
+  margin-bottom: 28px;
+}
+.ro-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 12px;
+}
+.ro-group-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ro-group-range {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ro-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.ro-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ---- Selection checkbox (shared by row + group select-all) ---- */
+.ro-check {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.ro-check.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.ro-check svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* ---- Row (52px — undated by definition, so no due chip) ---- */
+.ro-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  padding: 0 14px 0 12px;
+  height: 52px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.ro-row:hover {
+  border-color: var(--border-strong);
+}
+.ro-row.checked {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.ro-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ro-tick {
+  width: 3px;
+  height: 24px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.ro-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ro-row-title.dim {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ro-recur-pill {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+}
+
+.ro-avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* ---- Empty state ---- */
+.ro-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 64px 32px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.ro-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: var(--done-soft);
+  color: var(--done);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ro-empty-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--text);
+}
+.ro-empty-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 38ch;
+  line-height: 1.5;
+}
+.ro-empty-back {
+  margin-top: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ro-empty-back:hover {
+  background: var(--surface-2);
+}
+
+/* ---- Bulk bar (same mechanics as TeamPage's/Attention's) ---- */
+.ro-bulkbar-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 140px);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 90;
+  transition:
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s;
+}
+.ro-bulkbar-wrap.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ro-recur-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+}
+
+.ro-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 48px);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: var(--shadow-lg);
+}
+.ro-bulk-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ro-bulk-clear {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.ro-bulk-clear:hover {
+  background: var(--surface-2);
+}
+.ro-bulk-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.ro-bulk-move {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ro-bulk-move:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.ro-bulk-done,
+.ro-bulk-cancel {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.ro-bulk-done:hover:not(:disabled) {
+  border-color: var(--done);
+  color: var(--done);
+}
+.ro-bulk-cancel {
+  color: var(--text-muted);
+}
+.ro-bulk-cancel:hover:not(:disabled) {
+  border-color: var(--overdue);
+  color: var(--overdue);
+}
+.ro-bulkbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

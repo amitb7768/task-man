@@ -23,9 +23,14 @@ export interface CompletedFoldProps {
   onChanged: () => void;
   /** Optional custom row renderer (e.g. TeamPage's bulk-select-aware Row). */
   render?: (task: TaskView) => ReactNode;
+  /** Optional footer rendered after the rows, inside the opened fold body —
+   * the v6 team board's quiet "View older →" link into history
+   * (docs/DESIGN_V6_WEEK_ROLLOVER.md "History"). Every other call site
+   * (Day/Week/Month, TeamPage's per-member grouped folds) omits this. */
+  footer?: ReactNode;
 }
 
-export default function CompletedFold({ tasks, onOpen, onChanged, render }: CompletedFoldProps) {
+export default function CompletedFold({ tasks, onOpen, onChanged, render, footer }: CompletedFoldProps) {
   const [open, setOpen] = useState(false);
 
   if (tasks.length === 0) return null;
@@ -54,6 +59,7 @@ export default function CompletedFold({ tasks, onOpen, onChanged, render }: Comp
               ))}
             </div>
           )}
+          {footer}
         </div>
       )}
     </div>

@@ -16,7 +16,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Member, Status, SystemRole, TaskView, TeamBoardResponse } from "../api";
 import { api, ApiError } from "../api";
-import { formatDayBadgePeriod, isOverdue, today } from "../period";
+import { currentWeek, formatDayBadgePeriod, formatWeekRangeUpper, isOverdue, today } from "../period";
 import { notifyTasksChanged } from "../App";
 import { useAuth } from "../auth/AuthContext";
 import TaskRow from "../components/TaskRow";
@@ -26,6 +26,8 @@ import type { QuickAddResult } from "../components/QuickAdd";
 import TaskComposer from "../components/TaskComposer";
 import { dismissToast, showToast } from "../components/Toast";
 import CompletedFold, { isCompletedStatus } from "../components/CompletedFold";
+import TeamRollover from "./TeamRollover";
+import TeamHistory from "./TeamHistory";
 import "../styles/team-page.css";
 
 const UNASSIGNED = "__unassigned";
@@ -219,6 +221,11 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
   const [filterId, setFilterId] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // v6 week-scoped board — view-local state, same pattern as the members
+  // panel (no App.tsx routing change), docs/DESIGN_V6_WEEK_ROLLOVER.md "UI
+  // changes". Rollover is reached via the ADMIN-only banner; History via the
+  // completed fold's "View older" footer.
+  const [view, setView] = useState<"board" | "rollover" | "history">("board");
 
   const [membersOpen, setMembersOpen] = useState(false);
   const [membersClosing, setMembersClosing] = useState(false);
@@ -283,12 +290,21 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
     setSelected(new Set());
     setMembersOpen(false);
     setEditingId(null);
+    setView("board");
     return () => dismissToast();
   }, [teamId]);
 
   function handleChanged() {
     reload();
     notifyTasksChanged();
+  }
+
+  // Back-to-board from Rollover/History: also refreshes the board so a
+  // stale staleOpen count / completed fold reflects whatever changed while
+  // triaging or browsing history.
+  function showBoard() {
+    setView("board");
+    reload();
   }
 
   function fail(e: unknown) {
@@ -521,16 +537,19 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
     const remembered = ids
       .map((id) => {
         const t = taskById.get(id);
-        return t ? { id, status: t.status as Status } : null;
+        return t ? { id, status: t.status as Status, weekOf: t.weekOf ?? "" } : null;
       })
-      .filter((r): r is { id: string; status: Status } => r !== null);
+      .filter((r): r is { id: string; status: Status; weekOf: string } => r !== null);
     setSelected(new Set());
     try {
       await Promise.all(remembered.map((r) => api.updateTask(r.id, { status: "done" })));
       reload();
       notifyTasksChanged();
+      // Marking done bumps a team task's weekOf server-side, so undo must
+      // restore weekOf alongside status or a stale dated task silently
+      // drifts to the current week (mirrors TeamRollover's bulkStatus).
       showToast(`${plural(remembered.length, "task")} marked done`, () => {
-        Promise.all(remembered.map((r) => api.updateTask(r.id, { status: r.status })))
+        Promise.all(remembered.map((r) => api.updateTask(r.id, { status: r.status, weekOf: r.weekOf })))
           .then(() => {
             reload();
             notifyTasksChanged();
@@ -732,6 +751,27 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
 
   const anySelected = selected.size > 0;
 
+  if (view === "rollover") {
+    return (
+      <TeamRollover
+        teamId={teamId}
+        teamName={board?.team.name ?? ""}
+        memberById={memberById}
+        onBack={showBoard}
+      />
+    );
+  }
+  if (view === "history") {
+    return (
+      <TeamHistory
+        teamId={teamId}
+        teamName={board?.team.name ?? ""}
+        memberById={memberById}
+        onBack={showBoard}
+      />
+    );
+  }
+
   return (
     <div className="team-page">
       <header className="tp-header">
@@ -743,20 +783,27 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
         </button>
         <div className="tp-header-row">
           <div className="tp-header-left">
-            <h1 className="tp-team-name">{board?.team.name ?? "…"}</h1>
-            <div className="tp-status-chips">
-              <span className="tp-chip tp-chip-todo">
-                <span className="tp-chip-dot" aria-hidden="true" />
-                {countTodo} to do
-              </span>
-              <span className="tp-chip tp-chip-prog">
-                <span className="tp-chip-dot" aria-hidden="true" />
-                {countProg} in progress
-              </span>
-              <span className="tp-chip tp-chip-done">
-                <span className="tp-chip-dot" aria-hidden="true" />
-                {countDone} done
-              </span>
+            {board && (
+              <div className="eyebrow tp-week-eyebrow">
+                {`${board.team.name.toUpperCase()} · ${board.week ?? currentWeek()} · ${formatWeekRangeUpper(board.week ?? currentWeek())}`}
+              </div>
+            )}
+            <div className="tp-header-title-row">
+              <h1 className="tp-team-name">{board?.team.name ?? "…"}</h1>
+              <div className="tp-status-chips">
+                <span className="tp-chip tp-chip-todo">
+                  <span className="tp-chip-dot" aria-hidden="true" />
+                  {countTodo} to do
+                </span>
+                <span className="tp-chip tp-chip-prog">
+                  <span className="tp-chip-dot" aria-hidden="true" />
+                  {countProg} in progress
+                </span>
+                <span className="tp-chip tp-chip-done">
+                  <span className="tp-chip-dot" aria-hidden="true" />
+                  {countDone} done
+                </span>
+              </div>
             </div>
           </div>
           <button type="button" className="tp-members-btn" onClick={openMembers}>
@@ -816,6 +863,20 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
           onCreated={reload}
         />
       </div>
+
+      {isAdmin && board && board.staleOpen > 0 && (
+        <div className="tp-rollover-banner">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 8v5" />
+            <circle cx="12" cy="16.5" r="0.6" fill="var(--warn)" />
+            <path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+          </svg>
+          <span className="tp-rollover-banner-text">{plural(board.staleOpen, "task")} from past weeks need review</span>
+          <button type="button" className="tp-rollover-banner-btn" onClick={() => setView("rollover")}>
+            Review <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      )}
 
       <div className="tp-list-scroll">
         <div className="tp-list-inner">
@@ -877,6 +938,11 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
                     onChanged={handleChanged}
                   />
                 )}
+                footer={
+                  <button type="button" className="completed-fold-footer" onClick={() => setView("history")}>
+                    View older <span aria-hidden="true">→</span>
+                  </button>
+                }
               />
             </>
           )}

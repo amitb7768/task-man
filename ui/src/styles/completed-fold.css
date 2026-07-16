@@ -51,3 +51,21 @@
 .completed-fold-body {
   margin-top: 8px;
 }
+
+/* ---- Optional footer (v6 team board's "View older ->" into history) ---- */
+.completed-fold-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 12px 0 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.completed-fold-footer:hover {
+  color: var(--accent);
+}

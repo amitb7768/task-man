@@ -124,3 +124,31 @@ func directTeam(t *testing.T, store *Store, name string) Team {
 	}
 	return team
 }
+
+// directTask inserts a task document straight into Mongo, bypassing
+// CreateTask's system-managed-field derivation (ownerId/weekOf/timestamps),
+// so tests can seed fixtures with exactly the field values they need — e.g.
+// weekof_test.go's backfill tests need team tasks with weekOf missing
+// entirely, and its board/rollover/history tests need specific weekOf/
+// createdAt/status combinations CreateTask would never produce directly.
+func directTask(t *testing.T, store *Store, task Task) Task {
+	t.Helper()
+	if task.ID.IsZero() {
+		task.ID = bson.NewObjectID()
+	}
+	if task.Status == "" {
+		task.Status = StatusTodo
+	}
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = time.Now()
+	}
+	if task.UpdatedAt.IsZero() {
+		task.UpdatedAt = task.CreatedAt
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := store.tasks.InsertOne(ctx, task); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	return task
+}

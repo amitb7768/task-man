@@ -26,6 +26,9 @@ func main() {
 	if err := store.EnsureIndexes(ctx); err != nil {
 		log.Fatalf("ensure indexes: %v", err)
 	}
+	if err := store.BackfillWeekOf(ctx); err != nil {
+		log.Fatalf("backfill weekOf: %v", err)
+	}
 	if err := SeedAdmin(ctx, store); err != nil {
 		log.Fatalf("seed admin: %v", err)
 	}

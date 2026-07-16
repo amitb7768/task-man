@@ -63,6 +63,9 @@ PATCH /api/members/{id}  gains {systemRole?, disabled?}              (ADMIN)
 | Task DELETE + restore | ✓ | — (403) |
 | Views day/week/month | own personal | own personal |
 | All-tasks / Attention / Search / reschedule | own personal + ALL team tasks | own personal + OWN teams' tasks |
+| GET /api/teams/{id}/rollover (v6) | any team | — (403) |
+| PATCH /api/tasks/{id} with weekOf (v6) | ✓ | — (403) |
+| GET /api/teams/{id}/history (v6) | any team | own teams only |
 
 Unauthenticated request to anything but login/static → 401 → SPA shows login.
 Role failure → 403. `mustChangePassword` session → 403 on everything mutating except

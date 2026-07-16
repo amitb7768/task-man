@@ -76,6 +76,14 @@ type Task struct {
 	ParentID   *bson.ObjectID `bson:"parentId,omitempty" json:"parentId,omitempty"`
 	TeamID     *bson.ObjectID `bson:"teamId,omitempty" json:"teamId,omitempty"`
 	AssigneeID *bson.ObjectID `bson:"assigneeId,omitempty" json:"assigneeId,omitempty"`
+	// WeekOf is system-managed and present iff TeamID is set: the ISO week
+	// ("YYYY-Www") a team task last mattered — assigned on create, bumped
+	// unconditionally on transition into a terminal status (done/cancelled),
+	// and cleared on team->personal flip. Drives team-board visibility and
+	// rollover/history (docs/DESIGN_V6_WEEK_ROLLOVER.md). Client-settable
+	// only by ADMIN via PATCH (the rollover "move" primitive) — never by
+	// USER.
+	WeekOf string `bson:"weekOf,omitempty" json:"weekOf,omitempty"`
 	// OwnerID is set (and system-managed) exactly when TeamID is nil: a
 	// personal task's owner, the only session that may see it (see
 	// canAccessTask). Never client-settable; derived from the session user
@@ -139,6 +147,12 @@ type Board struct {
 	Team       Team               `json:"team"`
 	Members    []BoardMemberTasks `json:"members"`
 	Unassigned []TaskView         `json:"unassigned"`
+	// Week is the current ISO week ("YYYY-Www") the board's visibility
+	// filter is scoped to (docs/DESIGN_V6_WEEK_ROLLOVER.md).
+	Week string `json:"week"`
+	// StaleOpen counts open (todo/in_progress), undated tasks whose weekOf
+	// is before Week — the rollover banner's trigger, ADMIN-only in the UI.
+	StaleOpen int `json:"staleOpen"`
 }
 
 // ---- store ----
@@ -179,6 +193,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		{Keys: bson.D{{Key: "dueDate", Value: 1}}},
 		{Keys: bson.D{{Key: "parentId", Value: 1}}},
 		{Keys: bson.D{{Key: "teamId", Value: 1}, {Key: "assigneeId", Value: 1}}},
+		{Keys: bson.D{{Key: "teamId", Value: 1}, {Key: "weekOf", Value: 1}, {Key: "status", Value: 1}}},
 		{Keys: bson.D{{Key: "ownerId", Value: 1}}},
 		{
 			Keys: bson.D{{Key: "seriesId", Value: 1}, {Key: "period", Value: 1}},
@@ -213,6 +228,40 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("session indexes: %w", err)
+	}
+	return nil
+}
+
+// BackfillWeekOf sets weekOf on team tasks that predate the v6 week-rollover
+// feature (docs/DESIGN_V6_WEEK_ROLLOVER.md): weekOf = isoWeek(completedAt ??
+// createdAt). Only touches documents where teamId is set and weekOf is
+// still missing, so it's idempotent — safe to call on every boot, alongside
+// EnsureIndexes. Computed in Go, not via Mongo's $isoWeek aggregation
+// operator: ISO week membership depends on the server's local timezone
+// (docs/CLAUDE.md: "machine-local timezone everywhere"), which $isoWeek
+// can't see. A plain loop is fine — this is a one-time catch-up over a
+// small dataset, not a hot path.
+func (s *Store) BackfillWeekOf(ctx context.Context) error {
+	cur, err := s.tasks.Find(ctx, bson.M{
+		"teamId": bson.M{"$exists": true},
+		"weekOf": bson.M{"$exists": false},
+	})
+	if err != nil {
+		return fmt.Errorf("backfill weekOf: find: %w", err)
+	}
+	var tasks []Task
+	if err := cur.All(ctx, &tasks); err != nil {
+		return fmt.Errorf("backfill weekOf: decode: %w", err)
+	}
+	for _, t := range tasks {
+		basis := t.CreatedAt
+		if t.CompletedAt != nil {
+			basis = *t.CompletedAt
+		}
+		week := isoWeekString(basis)
+		if _, err := s.tasks.UpdateOne(ctx, bson.M{"_id": t.ID}, bson.M{"$set": bson.M{"weekOf": week}}); err != nil {
+			return fmt.Errorf("backfill weekOf: update %s: %w", t.ID.Hex(), err)
+		}
 	}
 	return nil
 }
@@ -428,6 +477,17 @@ func (s *Store) CreateTask(ctx context.Context, t *Task) (*TaskView, error) {
 		}
 	}
 
+	// weekOf is system-managed like ownerId: present iff TeamID is set,
+	// always the current ISO week on create (docs/DESIGN_V6_WEEK_ROLLOVER.md)
+	// — including a task created already-terminal, which is just the create
+	// rule applying, no separate transition logic needed. Never
+	// client-settable on create; overwrite whatever was sent, if anything.
+	if t.TeamID != nil {
+		t.WeekOf = isoWeekString(now)
+	} else {
+		t.WeekOf = ""
+	}
+
 	if err := s.validateTaskFields(ctx, t, nil); err != nil {
 		return nil, err
 	}
@@ -585,6 +645,30 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	if u != nil && !canAccessTask(u, &orig) {
 		return nil, forbiddenErr("not allowed")
 	}
+	now := time.Now()
+
+	// weekOf is a plain string field: json.Unmarshal only overwrites keys
+	// present in the input, but comparing the merged value against orig
+	// can't distinguish "the client explicitly resent the current value"
+	// from "the client omitted it" — so detect an attempted patch via raw
+	// key presence instead (docs/DESIGN_V6_WEEK_ROLLOVER.md's ADMIN-only
+	// weekOf patch, checked below once teamId/status merging settles).
+	var patchFields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &patchFields); err != nil {
+		return nil, badRequest("invalid JSON: %s", err.Error())
+	}
+	// json.Unmarshal onto the Task struct matches field names case-
+	// insensitively, so a differently-cased key (e.g. "weekof") would still
+	// land in t.WeekOf; detect presence the same way here or the check below
+	// can be bypassed by a non-canonical key.
+	weekOfPatched := false
+	for k := range patchFields {
+		if strings.EqualFold(k, "weekOf") {
+			weekOfPatched = true
+			break
+		}
+	}
+
 	// Recurrence is a pointer field: json.Unmarshal decodes onto the struct
 	// it already points to (merging present keys in place) rather than
 	// replacing the pointer, so capture an independent value copy now —
@@ -614,10 +698,14 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	// ownerId mirrors the personal/team invariant (docs/AUTH_FEATURES.md
 	// decision #3: "Personal task = ownerId set + teamId null") and is
 	// never client-settable. Re-derive it only when the patch flips
-	// teamId's nil-ness; otherwise it's immutable.
+	// teamId's nil-ness; otherwise it's immutable. weekOf mirrors the same
+	// flip (docs/DESIGN_V6_WEEK_ROLLOVER.md): personal->team assigns the
+	// current week (like a fresh team-task create); team->personal unsets
+	// it, since weekOf has no meaning off the team board.
 	switch {
 	case orig.TeamID == nil && t.TeamID != nil: // personal -> team
 		t.OwnerID = nil
+		t.WeekOf = isoWeekString(now)
 	case orig.TeamID != nil && t.TeamID == nil: // team -> personal
 		if u != nil {
 			oid := u.ID
@@ -625,6 +713,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		} else {
 			t.OwnerID = orig.OwnerID
 		}
+		t.WeekOf = ""
 	default:
 		t.OwnerID = orig.OwnerID
 	}
@@ -632,7 +721,24 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		return nil, forbiddenErr("not a member of that team")
 	}
 
-	now := time.Now()
+	// weekOf: system-managed except for the ADMIN-only direct-patch
+	// primitive rollover uses as its "move to this week" / undo action
+	// (docs/DESIGN_V6_WEEK_ROLLOVER.md). An explicit patch attempt requires
+	// ADMIN, a team task, and a well-formed ISO week key; it overrides
+	// whatever the team/personal-flip switch above just set. USER may never
+	// touch weekOf, even on their own team's tasks.
+	if weekOfPatched {
+		if u != nil && u.SystemRole != RoleAdmin {
+			return nil, forbiddenErr("only an admin can change weekOf")
+		}
+		if t.TeamID == nil {
+			return nil, badRequest("weekOf is not valid on a personal task")
+		}
+		if _, _, err := parseISOWeek(t.WeekOf); err != nil {
+			return nil, badRequest("invalid weekOf: %s", err.Error())
+		}
+	}
+
 	switch {
 	case orig.Status != StatusDone && t.Status == StatusDone:
 		t.CompletedAt = &now
@@ -642,6 +748,17 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		t.CompletedAt = orig.CompletedAt
 	}
 	t.UpdatedAt = now
+
+	// Transition into terminal (done/cancelled) bumps a team task's weekOf
+	// to the current week, unconditionally — "the week a team task last
+	// mattered" (docs/DESIGN_V6_WEEK_ROLLOVER.md) — overriding whatever the
+	// explicit-patch check above just validated. Transitions back out of
+	// terminal leave weekOf as-is (no action needed).
+	wasTerminal := orig.Status == StatusDone || orig.Status == StatusCancelled
+	isTerminal := t.Status == StatusDone || t.Status == StatusCancelled
+	if !wasTerminal && isTerminal && t.TeamID != nil {
+		t.WeekOf = isoWeekString(now)
+	}
 
 	if err := s.validateTaskFields(ctx, t, &id); err != nil {
 		return nil, err
@@ -894,6 +1011,12 @@ func (s *Store) Materialize(ctx context.Context) error {
 			}
 			if d := dueDateForSpawn(t.Recurrence, horizon, p); d != "" {
 				spawn.DueDate = d
+			}
+			if spawn.TeamID != nil {
+				// docs/DESIGN_V6_WEEK_ROLLOVER.md: spawned team-task
+				// instances start life in the current week, same as a fresh
+				// team-task create.
+				spawn.WeekOf = isoWeekString(now)
 			}
 			if _, err := s.tasks.InsertOne(ctx, spawn); err != nil && !mongo.IsDuplicateKeyError(err) {
 				return err
@@ -1324,9 +1447,37 @@ func (s *Store) DeleteMember(ctx context.Context, id bson.ObjectID) error {
 
 // ---- team board ----
 
+// boardVisibilityFilter is the Mongo filter fragment for "task state visible
+// on the team board this week" (docs/DESIGN_V6_WEEK_ROLLOVER.md, W = current
+// ISO week): open tasks (todo/in_progress) with a dueDate are always
+// visible; open tasks without one only if weekOf == W; terminal
+// (done/cancelled) tasks only if weekOf == W (the completed fold).
+func boardVisibilityFilter(W string) bson.M {
+	return bson.M{
+		"$or": []bson.M{
+			{
+				"status": bson.M{"$in": []string{StatusTodo, StatusInProgress}},
+				"$or": []bson.M{
+					{"dueDate": bson.M{"$exists": true}},
+					{"weekOf": W},
+				},
+			},
+			{
+				"status": bson.M{"$in": []string{StatusDone, StatusCancelled}},
+				"weekOf": W,
+			},
+		},
+	}
+}
+
 // TeamBoard returns a team's board. USER callers must belong to the team
 // (docs/AUTH_FEATURES.md matrix: "GET /api/teams/{id}/board | any team |
-// own teams only"); ADMIN may view any team's board.
+// own teams only"); ADMIN may view any team's board. Task visibility is
+// further scoped to the current week per boardVisibilityFilter
+// (docs/DESIGN_V6_WEEK_ROLLOVER.md) — note this narrows what's shown, not
+// what's counted: progress() (per-task subtask counts) stays unscoped by
+// design, and hidden stale tasks remain reachable via Search/All-Tasks/
+// Attention, whose scoping is untouched.
 func (s *Store) TeamBoard(ctx context.Context, teamID bson.ObjectID) (*Board, error) {
 	if err := s.Materialize(ctx); err != nil {
 		return nil, err
@@ -1348,22 +1499,152 @@ func (s *Store) TeamBoard(ctx context.Context, teamID bson.ObjectID) (*Board, er
 		return nil, err
 	}
 
-	board := &Board{Team: team, Members: []BoardMemberTasks{}}
+	W := currentPeriod(HorizonWeekly)
+	visibility := boardVisibilityFilter(W)
+
+	board := &Board{Team: team, Members: []BoardMemberTasks{}, Week: W}
 	for _, m := range members {
-		tasks, err := s.findViews(ctx, bson.M{"teamId": teamID, "assigneeId": m.ID})
+		filter := bson.M{"$and": []bson.M{{"teamId": teamID, "assigneeId": m.ID}, visibility}}
+		tasks, err := s.findViews(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
 		sortBoardTasks(tasks)
 		board.Members = append(board.Members, BoardMemberTasks{Member: m, Tasks: tasks})
 	}
-	unassigned, err := s.findViews(ctx, bson.M{"teamId": teamID, "assigneeId": bson.M{"$exists": false}})
+	unassignedFilter := bson.M{"$and": []bson.M{
+		{"teamId": teamID, "assigneeId": bson.M{"$exists": false}},
+		visibility,
+	}}
+	unassigned, err := s.findViews(ctx, unassignedFilter)
 	if err != nil {
 		return nil, err
 	}
 	sortBoardTasks(unassigned)
 	board.Unassigned = unassigned
+
+	staleOpen, err := s.tasks.CountDocuments(ctx, bson.M{
+		"teamId":  teamID,
+		"status":  bson.M{"$in": []string{StatusTodo, StatusInProgress}},
+		"dueDate": bson.M{"$exists": false},
+		"weekOf":  bson.M{"$lt": W},
+	})
+	if err != nil {
+		return nil, err
+	}
+	board.StaleOpen = int(staleOpen)
+
 	return board, nil
+}
+
+// TeamRollover returns a team's rollover candidates (docs/DESIGN_V6_WEEK_ROLLOVER.md):
+// open, undated tasks whose weekOf is before the current week, sorted
+// weekOf asc then createdAt asc. Route-gated to requireAdmin with no
+// further team-membership scoping — an ADMIN may roll over any team, same
+// as TeamBoard's ADMIN carve-out.
+func (s *Store) TeamRollover(ctx context.Context, teamID bson.ObjectID) (week string, tasks []TaskView, err error) {
+	if err = s.Materialize(ctx); err != nil {
+		return "", nil, err
+	}
+	var team Team
+	err = s.teams.FindOne(ctx, bson.M{"_id": teamID}).Decode(&team)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return "", nil, notFoundErr("team not found")
+	}
+	if err != nil {
+		return "", nil, err
+	}
+
+	W := currentPeriod(HorizonWeekly)
+	filter := bson.M{
+		"teamId":  teamID,
+		"status":  bson.M{"$in": []string{StatusTodo, StatusInProgress}},
+		"dueDate": bson.M{"$exists": false},
+		"weekOf":  bson.M{"$lt": W},
+	}
+	cur, err := s.tasks.Find(ctx, filter, options.Find().SetSort(bson.D{
+		{Key: "weekOf", Value: 1},
+		{Key: "createdAt", Value: 1},
+	}))
+	if err != nil {
+		return "", nil, err
+	}
+	var rawTasks []Task
+	if err := cur.All(ctx, &rawTasks); err != nil {
+		return "", nil, err
+	}
+	views, err := s.toViews(ctx, rawTasks)
+	if err != nil {
+		return "", nil, err
+	}
+	return W, views, nil
+}
+
+// defaultHistoryLimit/maxHistoryLimit bound TeamHistory's page size
+// (docs/DESIGN_V6_WEEK_ROLLOVER.md: "limit default 50, max 200").
+const (
+	defaultHistoryLimit = 50
+	maxHistoryLimit     = 200
+)
+
+// TeamHistory returns a team's completed-task history strictly before the
+// current week (current-week completions live on the board's completed
+// fold instead — docs/DESIGN_V6_WEEK_ROLLOVER.md), newest-first by
+// createdAt, offset/limit paginated — the codebase's first pagination.
+// Scoped like TeamBoard: ADMIN any team, USER own teams only. hasMore is
+// computed by fetching one extra row past limit.
+func (s *Store) TeamHistory(ctx context.Context, teamID bson.ObjectID, offset, limit int) (tasks []TaskView, hasMore bool, err error) {
+	if err = s.Materialize(ctx); err != nil {
+		return nil, false, err
+	}
+	if u := userFromContext(ctx); u != nil && u.SystemRole != RoleAdmin && !containsID(u.TeamIDs, teamID) {
+		return nil, false, forbiddenErr("not a member of that team")
+	}
+	var team Team
+	err = s.teams.FindOne(ctx, bson.M{"_id": teamID}).Decode(&team)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return nil, false, notFoundErr("team not found")
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	if limit <= 0 {
+		limit = defaultHistoryLimit
+	}
+	if limit > maxHistoryLimit {
+		limit = maxHistoryLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	W := currentPeriod(HorizonWeekly)
+	filter := bson.M{
+		"teamId": teamID,
+		"status": bson.M{"$in": []string{StatusDone, StatusCancelled}},
+		"weekOf": bson.M{"$lt": W},
+	}
+	cur, err := s.tasks.Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+		SetSkip(int64(offset)).
+		SetLimit(int64(limit+1)))
+	if err != nil {
+		return nil, false, err
+	}
+	var rawTasks []Task
+	if err := cur.All(ctx, &rawTasks); err != nil {
+		return nil, false, err
+	}
+	hasMore = len(rawTasks) > limit
+	if hasMore {
+		rawTasks = rawTasks[:limit]
+	}
+	views, err := s.toViews(ctx, rawTasks)
+	if err != nil {
+		return nil, false, err
+	}
+	return views, hasMore, nil
 }
 
 var priorityRank = map[string]int{"high": 3, "medium": 2, "low": 1, "": 0}

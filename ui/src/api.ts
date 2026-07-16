@@ -34,6 +34,11 @@ export interface TaskView {
   updatedAt: string;
   completedAt?: string;
   progress: { done: number; total: number };
+  // Server-managed ISO week ("YYYY-Www") this task belongs to — present iff
+  // the task is a team task (docs/DESIGN_V6_WEEK_ROLLOVER.md "Data model").
+  // Drives board visibility (undated open + terminal tasks only show when
+  // weekOf === the board's current week) and the rollover/history queries.
+  weekOf?: string;
 }
 
 export interface TaskDetail extends TaskView {
@@ -111,6 +116,10 @@ export interface UpdateTaskInput {
   teamId?: string | null;
   assigneeId?: string | null;
   recurrence?: Recurrence | null;
+  // ADMIN-only (403 otherwise); this is the rollover "move to this week"
+  // primitive and its undo (docs/DESIGN_V6_WEEK_ROLLOVER.md "Rollover").
+  // Never client-cleared — always a valid ISO week key.
+  weekOf?: string;
 }
 
 export interface DayViewResponse {
@@ -138,6 +147,29 @@ export interface TeamBoardResponse {
   team: Team;
   members: { member: Member; tasks: TaskView[] }[];
   unassigned: TaskView[];
+  // v6 week-scoping (docs/DESIGN_V6_WEEK_ROLLOVER.md "Board visibility"):
+  // `week` is the board's current ISO week (server's currentWeek()); the
+  // response is already filtered server-side to this week's working set —
+  // never re-filter client-side. `staleOpen` counts open+undated+past-week
+  // tasks (rollover-eligible); the board's ADMIN-only banner shows iff > 0.
+  week: string;
+  staleOpen: number;
+}
+
+// GET /api/teams/{id}/rollover response (ADMIN-only — docs/DESIGN_V6_WEEK_ROLLOVER.md
+// "Rollover"). tasks are open, undated, past-week, sorted weekOf asc then
+// createdAt asc (oldest week first).
+export interface RolloverResponse {
+  week: string;
+  tasks: TaskView[];
+}
+
+// GET /api/teams/{id}/history response (docs/DESIGN_V6_WEEK_ROLLOVER.md
+// "History"). tasks are done/cancelled, past weeks, createdAt desc; hasMore
+// drives the "Load more" pagination (first pagination in the codebase).
+export interface HistoryResponse {
+  tasks: TaskView[];
+  hasMore: boolean;
 }
 
 export interface SearchParams {
@@ -271,6 +303,11 @@ export const api = {
     request<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
   teamBoard: (id: string) => request<TeamBoardResponse>(`/teams/${id}/board`),
+  // ADMIN-only (server 403s otherwise — docs/DESIGN_V6_WEEK_ROLLOVER.md
+  // "Endpoint x role matrix").
+  teamRollover: (id: string) => request<RolloverResponse>(`/teams/${id}/rollover`),
+  teamHistory: (id: string, offset: number, limit: number) =>
+    request<HistoryResponse>(`/teams/${id}/history${qs({ offset: String(offset), limit: String(limit) })}`),
 
   listMembers: (teamId?: string) => request<Member[]>(`/members${qs({ teamId })}`),
   createMember: (input: { name: string; email?: string; role?: string; teamIds: string[] }) =>

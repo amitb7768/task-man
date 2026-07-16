@@ -55,6 +55,19 @@
 
 .tp-header-left {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+/* v6 week context — mono eyebrow above the name+chips row
+   (docs/DESIGN_V6_WEEK_ROLLOVER.md; design handoff "12 Team Board
+   (week-scoped)"). Reuses the shared .eyebrow primitive (index.css). */
+.tp-week-eyebrow {
+  margin-bottom: 0;
+}
+.tp-header-title-row {
+  display: flex;
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
@@ -283,6 +296,46 @@
 }
 .tp-quickadd .quick-add-field input {
   font-size: 14px;
+}
+
+/* ---- Rollover banner (ADMIN only, shown when staleOpen > 0 —
+   docs/DESIGN_V6_WEEK_ROLLOVER.md "Rollover"; design handoff "12 Team Board
+   (week-scoped)"). Sits between the toolbar and the list. ---- */
+.tp-rollover-banner {
+  flex: none;
+  margin: 14px 32px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--warn-soft);
+  border-radius: 10px;
+  padding: 11px 12px 11px 16px;
+}
+.tp-rollover-banner svg {
+  flex: none;
+}
+.tp-rollover-banner-text {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.tp-rollover-banner-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  background: var(--warn);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tp-rollover-banner-btn:hover {
+  opacity: 0.9;
 }
 
 /* ---- List ---- */

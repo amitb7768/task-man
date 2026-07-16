@@ -344,3 +344,34 @@ Also added CLAUDE.md context files (root, server/, ui/).
 
 NEXT: user runs the design prompt in claude.ai → bring mockups back → build
 (server field+backfill+endpoints, TeamPage view state board|rollover|history).
+
+---
+
+## Session 2026-07-16 (later) — v6 BUILD: week-scoped team board, rollover & history
+
+Pipeline: 2 parallel Sonnet implementors (server / UI) → Opus adversarial
+review → Sonnet fixer → Sonnet live E2E verify. Contract: docs/DESIGN_V6_WEEK_ROLLOVER.md.
+
+Server: Task.weekOf (create-stamp, terminal-bump, ADMIN-only PATCH w/ raw-key
+detection, personal↔team flip, Materialize stamp, idempotent startup backfill),
+week-scoped TeamBoard (+week, +staleOpen), GET /api/teams/{id}/rollover
+(requireAdmin), GET /api/teams/{id}/history?offset&limit (first pagination),
+index {teamId,weekOf,status}, 9 test funcs in weekof_test.go.
+UI: TeamPage view state board|rollover|history; week eyebrow; ADMIN banner;
+CompletedFold footer prop ("View older →"); TeamRollover.tsx (week groups,
+select-all, recurring pill + Move-skip, undo toasts); TeamHistory.tsx
+(read-only, status chips, Load more); api.ts + period.ts helpers.
+
+Opus review verdict FIX-THEN-SHIP; fixed: B1 BLOCKER — USER could bypass
+ADMIN-only weekOf via non-canonical JSON key ({"weekof":...}: case-sensitive
+key detection vs case-insensitive unmarshal) → EqualFold scan + regression
+test; M1 — rollover done/cancel undo didn't restore terminal-bumped weekOf →
+snapshot+restore both; m1 — Move now uses server-provided week, not browser
+currentWeek(); m3 — board bulkMarkDone undo also restores weekOf.
+Accepted (by design): Reschedule doesn't touch weekOf; history reload cap
+after >200 loaded; backfill shares 10s startup ctx (fine at LAN scale).
+
+Live verify: 11/11 PASS on scratch DB (bootstrap, provisioning, aging,
+board/staleOpen, rollover gate, 3 security probes incl. lowercase-key attack,
+move/terminal-bump/undo round-trip, history pagination + cross-team 403,
+personal views weekOf-free). go vet/test + npm build green.

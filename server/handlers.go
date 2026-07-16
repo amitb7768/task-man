@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -50,6 +51,8 @@ func (a *api) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /api/teams/{id}", requireAdmin(a.patchTeam))
 	mux.HandleFunc("DELETE /api/teams/{id}", requireAdmin(a.deleteTeam))
 	mux.HandleFunc("GET /api/teams/{id}/board", requireAuth(a.teamBoard))
+	mux.HandleFunc("GET /api/teams/{id}/rollover", requireAdmin(a.teamRollover))
+	mux.HandleFunc("GET /api/teams/{id}/history", requireAuth(a.teamHistory))
 
 	// ---- members (ADMIN only, all of it) ----
 	mux.HandleFunc("POST /api/members", requireAdmin(a.createMember))
@@ -380,6 +383,58 @@ func (a *api) teamBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, board)
+}
+
+func (a *api) teamRollover(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	week, tasks, err := a.store.TeamRollover(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"week":  week,
+		"tasks": orEmpty(tasks),
+	})
+}
+
+func (a *api) teamHistory(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	q := r.URL.Query()
+	offset, limit := 0, defaultHistoryLimit
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeErr(w, badRequest("invalid offset"))
+			return
+		}
+		offset = n
+	}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeErr(w, badRequest("invalid limit"))
+			return
+		}
+		limit = n
+	}
+	tasks, hasMore, err := a.store.TeamHistory(r.Context(), id, offset, limit)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tasks":   orEmpty(tasks),
+		"hasMore": hasMore,
+	})
 }
 
 // ---- members ----

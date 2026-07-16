@@ -161,6 +161,24 @@ export function formatWeekBadgePeriod(weekStr: string): string {
   return weekStr === currentWeek() ? `This week · W${weekNo}` : `W${weekNo}`;
 }
 
+// "JUL 13–19" (same month) or "JUN 29–JUL 5" (crosses month) — uppercase,
+// unpadded en dash. Used by the v6 week-scoped board eyebrow and the
+// rollover/history week-group headers (design_handoff_taskman_ui "12/13/14";
+// docs/DESIGN_V6_WEEK_ROLLOVER.md). Distinct from formatWeekLabel's existing
+// "Week 28 · Jul 6 – 12" (title case, always-both-months) — that format has
+// its own call sites and stays untouched.
+export function formatWeekRangeUpper(weekStr: string): string {
+  const monday = isoWeekMonday(weekStr);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const month = (d: Date) => d.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }).toUpperCase();
+  const day = (d: Date) => d.getUTCDate();
+  if (monday.getUTCMonth() === sunday.getUTCMonth()) {
+    return `${month(monday)} ${day(monday)}–${day(sunday)}`;
+  }
+  return `${month(monday)} ${day(monday)}–${month(sunday)} ${day(sunday)}`;
+}
+
 // "W28" — compact week label for chips (vs. the full "Week 28 · Jul 6 – 12").
 export function formatWeekShort(weekStr: string): string {
   const weekNo = weekStr.split("-W")[1] ?? weekStr;
