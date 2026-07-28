@@ -66,6 +66,18 @@ PATCH /api/members/{id}  gains {systemRole?, disabled?}              (ADMIN)
 | GET /api/teams/{id}/rollover (v6) | any team | — (403) |
 | PATCH /api/tasks/{id} with weekOf (v6) | ✓ | — (403) |
 | GET /api/teams/{id}/history (v6) | any team | own teams only |
+| GET /api/backlog (v7) | own backlog | 403 |
+| POST /api/tasks with horizon:"backlog" (v7) | ✓ (personal) | ✓ but nav tab hidden; harmless personal parking |
+| PATCH assigning backlog→team (v7) | ✓ (flip is ADMIN-only anyway) | 403 (existing flip rule) |
+
+Note (v7): creation with horizon `"backlog"` is not role-blocked server-side
+— a USER doing it via raw API just gets an invisible personal task: it never
+surfaces in their own UI (nav tab hidden) or an ADMIN's (personal-task
+privacy — GET /api/backlog is owner-scoped, so it isn't even that user's own
+admin session's problem to clean up), and the flip rule already stops them
+staffing it anywhere. Removing it requires an ADMIN who has the raw task id
+(Task DELETE is `requireAdmin`, unqualified by ownership) — the creating USER
+cannot delete it themselves. Accepted, not worth a special-case 403.
 
 Unauthenticated request to anything but login/static → 401 → SPA shows login.
 Role failure → 403. `mustChangePassword` session → 403 on everything mutating except

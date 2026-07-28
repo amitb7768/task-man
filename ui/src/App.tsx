@@ -27,6 +27,7 @@ import AttentionView from "./views/AttentionView";
 import TeamsLanding from "./views/TeamsLanding";
 import TeamPage from "./views/TeamPage";
 import SearchView from "./views/SearchView";
+import BacklogView from "./views/BacklogView";
 
 // ---------------------------------------------------------------------------
 // Cross-cutting "something changed" signal. TaskRow and TaskComposer call
@@ -154,6 +155,13 @@ const NAV_ICON_PATHS: Record<string, ReactElement> = {
       <line x1="15" y1="15" x2="20" y2="20" />
     </>
   ),
+  backlog: (
+    <>
+      <rect x="3.5" y="7" width="17" height="13" rx="2" />
+      <path d="M3.5 7 5.2 3.6A1.6 1.6 0 0 1 6.6 3h10.8a1.6 1.6 0 0 1 1.4.6L20.5 7" />
+      <line x1="9.5" y1="12.5" x2="14.5" y2="12.5" />
+    </>
+  ),
 };
 
 function NavIcon({ name }: { name: string }) {
@@ -164,7 +172,7 @@ function NavIcon({ name }: { name: string }) {
   );
 }
 
-type NavKey = "day" | "week" | "month" | "all" | "attention" | "teams" | "search";
+type NavKey = "day" | "week" | "month" | "backlog" | "all" | "attention" | "teams" | "search";
 
 interface NavItem {
   key: NavKey;
@@ -179,6 +187,10 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { key: "day", name: "Day", icon: "day" },
       { key: "week", name: "Week", icon: "week" },
       { key: "month", name: "Month", icon: "month" },
+      // ADMIN-only (docs/DESIGN_V7_BACKLOG.md) — the render loop below filters
+      // this one item out for USER; the server enforces the boundary
+      // regardless (requireAdmin on GET /api/backlog).
+      { key: "backlog", name: "Backlog", icon: "backlog" },
     ],
   },
   {
@@ -372,6 +384,10 @@ export default function App() {
       },
       quickAdd: { horizon: "monthly", periodLabel: formatMonthLabel(monthPeriod), placeholder: "Add a monthly goal…" },
     },
+    // No periodNav/quickAdd — BacklogView owns its own composer + "N parked"
+    // count in its own body (mirrors AllTasksView's toolbar count), same
+    // idiom as the all/attention/search entries below.
+    backlog: { eyebrow: "Plan · Parked", title: "Backlog" },
     all: { eyebrow: "All horizons", title: "All tasks" },
     attention: { eyebrow: "Needs a decision", title: "Attention" },
     teams: {
@@ -420,7 +436,9 @@ export default function App() {
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" key={group.label}>
               {expanded && <div className="nav-group-label">{group.label}</div>}
-              {group.items.map((item) => {
+              {group.items
+                .filter((item) => item.key !== "backlog" || user.systemRole === "ADMIN")
+                .map((item) => {
                 const active = tab === item.key;
                 const showBadge = item.key === "attention" && !!attentionCount && attentionCount > 0;
                 return (
@@ -540,7 +558,12 @@ export default function App() {
                   <TaskComposer
                     context="personal"
                     horizon={meta.quickAdd.horizon}
-                    periods={{ daily: dayDate, weekly: weekPeriod, monthly: monthPeriod }}
+                    // backlog: "" is a type-completeness filler only — the
+                    // personal composer's horizon is always daily/weekly/
+                    // monthly here, so this key is never actually read
+                    // (docs/DESIGN_V7_BACKLOG.md; api.ts's Horizon gained
+                    // "backlog", which widens Record<Horizon, string>).
+                    periods={{ daily: dayDate, weekly: weekPeriod, monthly: monthPeriod, backlog: "" }}
                     periodLabel={meta.quickAdd.periodLabel}
                     placeholder={meta.quickAdd.placeholder}
                     onCreated={() => setReloadToken((v) => v + 1)}
@@ -559,6 +582,7 @@ export default function App() {
               {tab === "day" && <DayView date={dayDate} reloadToken={reloadToken} />}
               {tab === "week" && <WeekView week={weekPeriod} reloadToken={reloadToken} />}
               {tab === "month" && <MonthView month={monthPeriod} reloadToken={reloadToken} />}
+              {tab === "backlog" && <BacklogView />}
               {tab === "all" && <AllTasksView />}
               {tab === "attention" && <AttentionView />}
               {tab === "teams" && <TeamsLanding onOpenTeam={setTeamPageId} />}

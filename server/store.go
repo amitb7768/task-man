@@ -344,6 +344,21 @@ func (s *Store) validateTaskFields(ctx context.Context, t *Task, selfID *bson.Ob
 		return badRequest("invalid priority %q", t.Priority)
 	}
 
+	// Backlog invariants (docs/DESIGN_V7_BACKLOG.md): a backlog task is
+	// always personal, undated, and non-recurring — final-state checks, so
+	// they cover both create and patch.
+	if t.Horizon == HorizonBacklog {
+		if t.TeamID != nil {
+			return badRequest("backlog tasks are personal")
+		}
+		if t.DueDate != "" {
+			return badRequest("backlog tasks cannot have a due date")
+		}
+		if t.Recurrence != nil {
+			return badRequest("backlog tasks cannot recur")
+		}
+	}
+
 	if t.ParentID != nil {
 		if selfID != nil && *t.ParentID == *selfID {
 			return badRequest("task cannot be its own parent")
@@ -589,6 +604,21 @@ func (s *Store) findPersonal(ctx context.Context, filter bson.M) ([]TaskView, er
 		f[k] = v
 	}
 	return s.findViews(ctx, f)
+}
+
+// Backlog returns the caller's own backlog tasks (findPersonal scopes to
+// ownerId, same as the personal planning views), newest-first by createdAt.
+// findViews only supports an ascending createdAt sort, so reverse the
+// already-fetched slice rather than adding a sort parameter.
+func (s *Store) Backlog(ctx context.Context) ([]TaskView, error) {
+	tasks, err := s.findPersonal(ctx, bson.M{"horizon": HorizonBacklog})
+	if err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(tasks)-1; i < j; i, j = i+1, j-1 {
+		tasks[i], tasks[j] = tasks[j], tasks[i]
+	}
+	return tasks, nil
 }
 
 func (s *Store) GetTaskDetail(ctx context.Context, id bson.ObjectID) (*TaskDetail, error) {
@@ -933,6 +963,9 @@ func (s *Store) Reschedule(ctx context.Context, ids []bson.ObjectID) (int, error
 		if u != nil && !canAccessTask(u, t) {
 			continue // out of the caller's visible scope: skip silently, like a missing id
 		}
+		if t.Horizon == HorizonBacklog {
+			continue // no period to reschedule to (docs/DESIGN_V7_BACKLOG.md): a no-op, not a real update
+		}
 		set := bson.M{"period": currentPeriod(t.Horizon), "updatedAt": time.Now()}
 		if t.DueDate != "" {
 			set["dueDate"] = currentPeriod(HorizonDaily)
@@ -1095,7 +1128,25 @@ func (s *Store) ViewMonth(ctx context.Context, month string) (tasks []TaskView, 
 	}
 	weeks = map[string][]TaskView{}
 	for _, w := range ws {
-		wv, err := s.findPersonal(ctx, bson.M{"horizon": HorizonWeekly, "period": w})
+		dates, err := datesInWeek(w)
+		if err != nil {
+			return nil, nil, badRequest("%s", err.Error())
+		}
+		// Month-view daily rollup (docs/DESIGN_V7_BACKLOG.md): widen the
+		// per-week filter to also pick up daily tasks whose date falls inside
+		// this month — a month-spanning week's daily tasks land in only the
+		// month their date belongs to, even though the week bucket itself
+		// (weeksInMonth) appears in both months.
+		var monthDates []string
+		for _, d := range dates {
+			if strings.HasPrefix(d, month) {
+				monthDates = append(monthDates, d)
+			}
+		}
+		wv, err := s.findPersonal(ctx, bson.M{"$or": []bson.M{
+			{"horizon": HorizonWeekly, "period": w},
+			{"horizon": HorizonDaily, "period": bson.M{"$in": monthDates}},
+		}})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1166,6 +1217,11 @@ func (s *Store) Search(ctx context.Context, p SearchParams) ([]TaskView, error) 
 	}
 	if p.Horizon != "" {
 		conds = append(conds, bson.M{"horizon": p.Horizon})
+	} else {
+		// Backlog tasks are hidden from Search/All-Tasks by default
+		// (docs/DESIGN_V7_BACKLOG.md) — only an explicit horizon=backlog opts
+		// in, which the branch above already handles.
+		conds = append(conds, bson.M{"horizon": bson.M{"$ne": HorizonBacklog}})
 	}
 	if p.TeamID != nil {
 		conds = append(conds, bson.M{"teamId": *p.TeamID})

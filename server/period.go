@@ -12,6 +12,12 @@ const (
 	HorizonDaily   = "daily"
 	HorizonWeekly  = "weekly"
 	HorizonMonthly = "monthly"
+	// HorizonBacklog is a sentinel horizon for unstaffed, personal-only
+	// planning tasks (docs/DESIGN_V7_BACKLOG.md): always period "", never
+	// teamId/dueDate/recurrence. It carries no granularity rank — deliberately
+	// absent from horizonRank, since it never participates in parent/child
+	// rank comparisons.
+	HorizonBacklog = "backlog"
 )
 
 const dateLayout = "2006-01-02"
@@ -31,8 +37,12 @@ func horizonRank(h string) (int, bool) {
 	}
 }
 
-// validHorizon reports whether h is one of the three recognized horizons.
+// validHorizon reports whether h is one of the three recognized horizons or
+// the backlog sentinel.
 func validHorizon(h string) bool {
+	if h == HorizonBacklog {
+		return true
+	}
 	_, ok := horizonRank(h)
 	return ok
 }
@@ -122,6 +132,11 @@ func validatePeriod(horizon, period string) error {
 	case HorizonMonthly:
 		_, _, err := parseMonth(period)
 		return err
+	case HorizonBacklog:
+		if period != "" {
+			return fmt.Errorf("horizon %q requires an empty period", horizon)
+		}
+		return nil
 	default:
 		return fmt.Errorf("invalid horizon %q", horizon)
 	}

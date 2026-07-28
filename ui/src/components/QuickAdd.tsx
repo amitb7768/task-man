@@ -30,7 +30,10 @@ export interface QuickAddProps {
   onCreate: (result: QuickAddResult) => void | Promise<void>;
 }
 
-const HORIZON_LABEL: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+// backlog is never a real call-site value here (QuickAdd has no backlog
+// caller — see components/TaskComposer.tsx's dedicated context="backlog"
+// instead); the key only exists to satisfy Record<Horizon, string>.
+const HORIZON_LABEL: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", backlog: "Backlog" };
 
 const LEGEND: { token: string; desc: string; kind: "prio" | "due" | "assignee" | "recur" | "horizon" }[] = [
   { token: "!high", desc: "priority", kind: "prio" },

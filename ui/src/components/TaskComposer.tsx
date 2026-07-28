@@ -87,7 +87,18 @@ interface TaskComposerPersonalProps {
   onCreated: () => void;
 }
 
-export type TaskComposerProps = TaskComposerTeamProps | TaskComposerPersonalProps;
+// v7 backlog rollout (docs/DESIGN_V7_BACKLOG.md "UI") — views/BacklogView.tsx's
+// composer: title + notes + priority pills ONLY (no due/repeat/assignee —
+// backlog tasks are rejected server-side for dueDate/recurrence/teamId).
+// Always creates horizon:"backlog", period:"".
+interface TaskComposerBacklogProps {
+  context: "backlog";
+  /** Called after every successful create so the caller can refresh its own
+   *  data (the composer itself calls notifyTasksChanged()). */
+  onCreated: () => void;
+}
+
+export type TaskComposerProps = TaskComposerTeamProps | TaskComposerPersonalProps | TaskComposerBacklogProps;
 
 type PopoverName = "assignee" | "due" | "priority" | "repeat" | null;
 
@@ -114,7 +125,9 @@ const DEFAULT_WEEKDAYS = [1, 2, 3, 4, 5]; // Mon-Fri, ISO Mon=1
 // Personal-context collapsed-bar horizon badge label — identical copy to
 // App.tsx's own HORIZON_LABEL (small per-file duplication, same established
 // pattern as toneIndex/AVATAR_TONES above).
-const HORIZON_LABEL: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+// backlog is never a personal-context view horizon (that badge only shows
+// for Day/Week/Month) — the key only exists to satisfy Record<Horizon, string>.
+const HORIZON_LABEL: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", backlog: "Backlog" };
 
 const PRIORITY_OPTIONS: { value: Priority; label: string; dot?: string }[] = [
   { value: "", label: "None" },
@@ -297,16 +310,22 @@ function CloseIcon() {
 export default function TaskComposer(props: TaskComposerProps) {
   const { onCreated } = props;
   const isPersonal = props.context === "personal";
-  // Team-only fields, undefined/empty in personal context (never read there —
-  // see the payload-building guards in fastCreate/createFromDraft/create).
+  // v7 backlog rollout (docs/DESIGN_V7_BACKLOG.md): title + notes + priority
+  // only — every payload-building path below guards dueDate/teamId/
+  // assigneeId/recurrence out for this context regardless of what token
+  // parsing might otherwise have produced from typed text.
+  const isBacklog = props.context === "backlog";
+  // Team-only fields, undefined/empty in personal/backlog context (never read
+  // there — see the payload-building guards in fastCreate/createFromDraft/create).
   const teamId = props.context === "team" ? props.teamId : undefined;
   const members = props.context === "team" ? props.members : [];
   const defaultAssigneeId = props.context === "team" ? props.defaultAssigneeId : undefined;
-  // Personal-only fields, undefined in team context.
+  // Personal-only fields, undefined in team/backlog context.
   const viewHorizon = props.context === "personal" ? props.horizon : undefined;
   const viewPeriods = props.context === "personal" ? props.periods : undefined;
   const periodLabel = props.context === "personal" ? props.periodLabel : undefined;
-  const barPlaceholder = props.context === "personal" ? props.placeholder : "Add a task for the team…";
+  const barPlaceholder =
+    props.context === "personal" ? props.placeholder : isBacklog ? "Add to the backlog…" : "Add a task for the team…";
 
   const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState("");
@@ -495,11 +514,14 @@ export default function TaskComposer(props: TaskComposerProps) {
     // only from recurrence coupling, else defaults to daily+today.
     // Personal (v3.2): #override tokens ARE honored — recurrence coupling
     // still wins over them, same precedence as team.
-    const { horizon, period } = horizonAndPeriod(
-      parsed.recurrence?.freq,
-      isPersonal ? { horizonToken: parsed.horizon, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
-    );
-    const assignee = isPersonal ? undefined : (resolveAssigneeName(parsed.assigneeName, members) ?? defaultAssigneeId);
+    const { horizon, period } = isBacklog
+      ? { horizon: "backlog" as Horizon, period: "" }
+      : horizonAndPeriod(
+          parsed.recurrence?.freq,
+          isPersonal ? { horizonToken: parsed.horizon, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
+        );
+    const assignee =
+      isPersonal || isBacklog ? undefined : (resolveAssigneeName(parsed.assigneeName, members) ?? defaultAssigneeId);
     inFlightRef.current = true;
     setCreating(true);
     setError(null);
@@ -508,11 +530,12 @@ export default function TaskComposer(props: TaskComposerProps) {
         title: parsed.title,
         horizon,
         period,
-        dueDate: parsed.dueDate,
+        dueDate: isBacklog ? undefined : parsed.dueDate,
         priority: parsed.priority,
-        teamId: isPersonal ? undefined : teamId,
+        teamId: isPersonal || isBacklog ? undefined : teamId,
         assigneeId: assignee,
-        recurrence: parsed.recurrence ? { freq: parsed.recurrence.freq, weekdays: parsed.recurrence.weekdays } : undefined,
+        recurrence:
+          isBacklog || !parsed.recurrence ? undefined : { freq: parsed.recurrence.freq, weekdays: parsed.recurrence.weekdays },
       })
       .then(() => {
         notifyTasksChanged();
@@ -537,7 +560,8 @@ export default function TaskComposer(props: TaskComposerProps) {
     if (inFlightRef.current) return;
     const parsed = parseQuickAdd(title);
     if (!parsed.title) return;
-    const mergedAssignee = isPersonal ? undefined : (resolveAssigneeName(parsed.assigneeName, members) ?? assigneeId);
+    const mergedAssignee =
+      isPersonal || isBacklog ? undefined : (resolveAssigneeName(parsed.assigneeName, members) ?? assigneeId);
     const mergedPriority = parsed.priority || priority;
     const mergedDue = parsed.dueDate || due;
     const mergedRepeat: RepeatDraft | null = parsed.recurrence
@@ -547,10 +571,12 @@ export default function TaskComposer(props: TaskComposerProps) {
     // horizonOverride, same "fresh token beats draft" rule as the other
     // merged fields above.
     const mergedHorizonToken = isPersonal ? (parsed.horizon ?? horizonOverride) : undefined;
-    const { horizon, period } = horizonAndPeriod(
-      mergedRepeat?.freq,
-      isPersonal ? { horizonToken: mergedHorizonToken, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
-    );
+    const { horizon, period } = isBacklog
+      ? { horizon: "backlog" as Horizon, period: "" }
+      : horizonAndPeriod(
+          mergedRepeat?.freq,
+          isPersonal ? { horizonToken: mergedHorizonToken, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
+        );
     inFlightRef.current = true;
     setCreating(true);
     setError(null);
@@ -560,11 +586,11 @@ export default function TaskComposer(props: TaskComposerProps) {
         notes: notes.trim() || undefined,
         horizon,
         period,
-        dueDate: mergedDue || undefined,
+        dueDate: isBacklog ? undefined : mergedDue || undefined,
         priority: mergedPriority || undefined,
-        teamId: isPersonal ? undefined : teamId,
+        teamId: isPersonal || isBacklog ? undefined : teamId,
         assigneeId: mergedAssignee,
-        recurrence: buildRecurrence(mergedRepeat),
+        recurrence: isBacklog ? undefined : buildRecurrence(mergedRepeat),
       })
       .then(() => {
         notifyTasksChanged();
@@ -586,21 +612,23 @@ export default function TaskComposer(props: TaskComposerProps) {
     inFlightRef.current = true;
     setCreating(true);
     setError(null);
-    const { horizon, period } = horizonAndPeriod(
-      repeat?.freq,
-      isPersonal ? { horizonToken: horizonOverride, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
-    );
+    const { horizon, period } = isBacklog
+      ? { horizon: "backlog" as Horizon, period: "" }
+      : horizonAndPeriod(
+          repeat?.freq,
+          isPersonal ? { horizonToken: horizonOverride, viewHorizon: viewHorizon!, periods: viewPeriods! } : undefined,
+        );
     try {
       await api.createTask({
         title: title.trim(),
         notes: notes.trim() || undefined,
         horizon,
         period,
-        dueDate: due || undefined,
+        dueDate: isBacklog ? undefined : due || undefined,
         priority: priority || undefined,
-        teamId: isPersonal ? undefined : teamId,
-        assigneeId: isPersonal ? undefined : assigneeId,
-        recurrence: buildRecurrence(repeat),
+        teamId: isPersonal || isBacklog ? undefined : teamId,
+        assigneeId: isPersonal || isBacklog ? undefined : assigneeId,
+        recurrence: isBacklog ? undefined : buildRecurrence(repeat),
       });
       notifyTasksChanged();
       onCreated();
@@ -762,9 +790,9 @@ export default function TaskComposer(props: TaskComposerProps) {
         </div>
 
         <div className="composer-pills">
-          {/* Assignee — personal context hides this pill entirely (no
-              teamId/assigneeId ever sent from that context). */}
-          {!isPersonal && (
+          {/* Assignee — personal/backlog context hides this pill entirely (no
+              teamId/assigneeId ever sent from those contexts). */}
+          {!isPersonal && !isBacklog && (
           <div className="composer-pill-wrap">
             <button
               type="button"
@@ -820,7 +848,9 @@ export default function TaskComposer(props: TaskComposerProps) {
           </div>
           )}
 
-          {/* Due date */}
+          {/* Due date — hidden in backlog context (server 400s a backlog
+              task with a dueDate; docs/DESIGN_V7_BACKLOG.md). */}
+          {!isBacklog && (
           <div className="composer-pill-wrap">
             <button
               type="button"
@@ -866,6 +896,7 @@ export default function TaskComposer(props: TaskComposerProps) {
               </div>
             )}
           </div>
+          )}
 
           {/* Priority */}
           <div className="composer-pill-wrap">
@@ -904,7 +935,9 @@ export default function TaskComposer(props: TaskComposerProps) {
             )}
           </div>
 
-          {/* Repeat */}
+          {/* Repeat — hidden in backlog context (server 400s a backlog task
+              with recurrence; docs/DESIGN_V7_BACKLOG.md). */}
+          {!isBacklog && (
           <div className="composer-pill-wrap">
             <button
               type="button"
@@ -999,6 +1032,7 @@ export default function TaskComposer(props: TaskComposerProps) {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {error && (

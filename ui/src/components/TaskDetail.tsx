@@ -37,7 +37,9 @@ import { showToast } from "./Toast";
 import "../styles/task-detail.css";
 
 const HORIZONS: Horizon[] = ["daily", "weekly", "monthly"];
-const HORIZON_NAME: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+// backlog is never offered as a subtask horizon (HORIZONS above excludes it);
+// the key only exists to satisfy Record<Horizon, string> (docs/DESIGN_V7_BACKLOG.md).
+const HORIZON_NAME: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", backlog: "Backlog" };
 const STATUS_LABEL: Record<Status, string> = {
   todo: "To do",
   in_progress: "in-progress", // wire value is in_progress; display label is "in-progress" (docs/DESIGN_V2_UI.md)
@@ -75,6 +77,7 @@ function defaultPeriodFor(h: Horizon): string {
 }
 
 function horizonPeriodLabel(h: Horizon, period: string): string {
+  if (h === "backlog") return "Unscheduled";
   if (h === "monthly") return formatMonthLabel(period);
   if (h === "weekly") return formatWeekLabel(period);
   return formatDayLabel(period);
@@ -430,23 +433,25 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                   </div>
                 </div>
 
-                <div className="td-row">
-                  <span className="td-row-label">Due date</span>
-                  <input
-                    type="date"
-                    className="td-due-input"
-                    value={detail.dueDate ?? ""}
-                    onChange={(e) => patch({ dueDate: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    className="td-clear-btn"
-                    disabled={!detail.dueDate}
-                    onClick={() => patch({ dueDate: "" })}
-                  >
-                    clear
-                  </button>
-                </div>
+                {detail.horizon !== "backlog" && (
+                  <div className="td-row">
+                    <span className="td-row-label">Due date</span>
+                    <input
+                      type="date"
+                      className="td-due-input"
+                      value={detail.dueDate ?? ""}
+                      onChange={(e) => patch({ dueDate: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="td-clear-btn"
+                      disabled={!detail.dueDate}
+                      onClick={() => patch({ dueDate: "" })}
+                    >
+                      clear
+                    </button>
+                  </div>
+                )}
 
                 <div className="td-row">
                   <span className="td-row-label">Horizon</span>
@@ -457,6 +462,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                 </div>
               </div>
 
+              {detail.horizon !== "backlog" && (
               <div className="td-recur">
                 <div className="td-recur-head">
                   <span className="td-recur-label">Repeat</span>
@@ -534,6 +540,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                   </div>
                 )}
               </div>
+              )}
 
               <div className="td-subtasks">
                 <div className="td-sub-head">

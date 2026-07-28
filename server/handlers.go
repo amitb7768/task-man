@@ -45,6 +45,8 @@ func (a *api) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/search", requireAuth(a.search))
 
+	mux.HandleFunc("GET /api/backlog", requireAdmin(a.backlog))
+
 	// ---- teams ----
 	mux.HandleFunc("POST /api/teams", requireAdmin(a.createTeam))
 	mux.HandleFunc("GET /api/teams", requireAuth(a.listTeams))
@@ -303,6 +305,17 @@ func (a *api) search(w http.ResponseWriter, r *http.Request) {
 		p.AssigneeID = &oid
 	}
 	tasks, err := a.store.Search(r.Context(), p)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": orEmpty(tasks)})
+}
+
+// ---- backlog ----
+
+func (a *api) backlog(w http.ResponseWriter, r *http.Request) {
+	tasks, err := a.store.Backlog(r.Context())
 	if err != nil {
 		writeErr(w, err)
 		return

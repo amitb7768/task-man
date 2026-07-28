@@ -78,6 +78,10 @@ export default function SearchView() {
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
+          {/* Opt-in only (docs/DESIGN_V7_BACKLOG.md): default search excludes
+              backlog tasks server-side; picking this explicit value is the
+              only way to surface them here. */}
+          <option value="backlog">Backlog</option>
         </select>
         <select value={teamId} onChange={(e) => setTeamId(e.target.value)}>
           <option value="">Any team</option>

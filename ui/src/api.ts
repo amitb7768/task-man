@@ -1,7 +1,10 @@
 // Typed fetch wrapper + API surface matching docs/DESIGN.md "API contract"
 // and (for auth/user-management) docs/AUTH_FEATURES.md "API surface".
 
-export type Horizon = "daily" | "weekly" | "monthly";
+// "backlog" (docs/DESIGN_V7_BACKLOG.md): the unstaffed personal planning pool —
+// horizon "backlog" always pairs with period "" and no dueDate/recurrence/
+// teamId/assigneeId (server-enforced; see validateTaskFields). ADMIN-only.
+export type Horizon = "daily" | "weekly" | "monthly" | "backlog";
 export type Status = "todo" | "in_progress" | "done" | "cancelled";
 export type Priority = "" | "low" | "medium" | "high";
 export type RecurrenceFreq = "daily" | "weekdays" | "weekly" | "monthly";
@@ -283,6 +286,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids }),
     }),
+  // ADMIN-only (403 for USER) — the caller's own backlog, createdAt desc
+  // (docs/DESIGN_V7_BACKLOG.md "Endpoints").
+  backlog: () => request<{ tasks: TaskView[] }>("/backlog"),
   search: (params: SearchParams) =>
     request<{ tasks: TaskView[] }>(
       `/search${qs({
@@ -347,4 +353,7 @@ export const api = {
   },
 };
 
-export const horizonRank: Record<Horizon, number> = { daily: 1, weekly: 2, monthly: 3 };
+// backlog ranks below every real horizon — it has no valid child horizon
+// (TaskDetail's subtask-horizon picker naturally offers none for a backlog
+// parent, which is correct: backlog tasks aren't a subtask target).
+export const horizonRank: Record<Horizon, number> = { daily: 1, weekly: 2, monthly: 3, backlog: 0 };

@@ -97,7 +97,7 @@ GET    /api/views/day?date=2026-07-08     → {tasks: [TaskView], weekContext: [
 GET    /api/views/week?week=2026-W28      → {tasks: [TaskView], days: {"2026-07-06": [TaskView], ...}, monthContext: [TaskView]}
        tasks: weekly of that week; days: daily tasks per date in week; monthContext: monthly of containing month. Personal only.
 GET    /api/views/month?month=2026-07     → {tasks: [TaskView], weeks: {"2026-W28": [TaskView], ...}}
-       tasks: monthly of that month; weeks: weekly tasks per ISO week overlapping the month. Personal only.
+       tasks: monthly of that month; weeks: weekly tasks per ISO week overlapping the month, plus daily tasks dated within it. Personal only.
 GET    /api/views/attention               → {overdue: [TaskView], slipped: [TaskView]}
        overdue: dueDate < today AND status in (todo,in_progress) — personal AND team tasks.
        slipped: no dueDate AND period fully past AND status open. A task never appears in both.

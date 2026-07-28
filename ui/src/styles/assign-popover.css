@@ -1,0 +1,89 @@
+/* ==========================================================================
+   Assign popover (docs/DESIGN_V7_BACKLOG.md "UI") — team -> member (open-task
+   workload) -> optional due date -> Assign. Owned by
+   ui/src/components/AssignPopover.tsx — do not import elsewhere. Mirrors
+   TaskComposer's pill-popover visual language (composer.css
+   .composer-popover/.composer-popover-row) — a self-contained absolute panel
+   anchored under (or, near the bottom of the viewport, above) its trigger.
+   Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+   ========================================================================== */
+
+.assign-popover {
+  position: absolute;
+  /* Right-anchored (not left, unlike TaskComposer's pill popovers): its row
+     trigger sits at the row's right edge (the hover action cluster), so a
+     left anchor would risk overflowing content-scroll's right edge. */
+  right: 0;
+  z-index: 40;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+}
+.assign-popover-bottom {
+  top: calc(100% + 8px);
+}
+.assign-popover-top {
+  bottom: calc(100% + 8px);
+}
+
+.assign-popover-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.assign-popover-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.assign-popover-field select,
+.assign-popover-field input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.assign-popover-field select:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.assign-popover-field select:focus-visible,
+.assign-popover-field input:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}
+
+.assign-popover-btn {
+  height: 34px;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.assign-popover-btn:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.assign-popover-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 0 1px var(--accent);
+}

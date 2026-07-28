@@ -1,0 +1,352 @@
+/* ==========================================================================
+   Backlog (docs/DESIGN_V7_BACKLOG.md) — the unstaffed personal planning pool.
+   Owned by ui/src/views/BacklogView.tsx — do not import elsewhere.
+   Group-header anatomy mirrors styles/all-tasks.css; the bulk bar mirrors
+   styles/team-rollover.css's (same slide-up mechanics, `bl-` prefix here).
+   Tokens only — no raw color values (docs/DESIGN_V2_UI.md).
+   ========================================================================== */
+
+.bl-view {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ---- Toolbar: composer + muted "N parked" count ---- */
+.bl-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.bl-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* ---- Priority groups (anatomy copied from all-tasks.css) ---- */
+.bl-groups {
+  display: flex;
+  flex-direction: column;
+}
+.bl-group {
+  margin-bottom: 28px;
+}
+.bl-group:last-child {
+  margin-bottom: 0;
+}
+.bl-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 12px;
+}
+.bl-group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+.bl-group-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.bl-group-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.bl-group-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Rows (checkbox + StatusControl + tick + title, no due chip/avatar —
+   a backlog task never carries either) ---- */
+.bl-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bl-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  padding: 0 12px;
+  height: 48px;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.bl-row:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+.bl-row.checked {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.bl-check {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.bl-check.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.bl-check svg {
+  width: 11px;
+  height: 11px;
+}
+
+.bl-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  cursor: pointer;
+}
+
+.bl-tick {
+  width: 3px;
+  height: 22px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.bl-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Per-row hover action cluster: Assign… + delete ---- */
+.bl-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.bl-row:hover .bl-row-actions,
+.bl-row:focus-within .bl-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bl-assign-anchor {
+  position: relative;
+  flex: none;
+}
+.bl-assign-trigger {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.bl-assign-trigger:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bl-delete-trigger {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.bl-delete-trigger:hover {
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+
+/* ---- Empty state (anatomy copied from all-tasks.css / team-rollover.css) ---- */
+.bl-empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: 56px 32px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.bl-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: var(--done-soft);
+  color: var(--done);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bl-empty-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--text);
+}
+.bl-empty-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 38ch;
+  line-height: 1.5;
+}
+
+/* ---- Bulk bar (same slide-up mechanics as team-rollover.css's .ro-bulkbar) ---- */
+.bl-bulkbar-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 140px);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 90;
+  transition:
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s;
+}
+.bl-bulkbar-wrap.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bl-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 48px);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: var(--shadow-lg);
+}
+.bl-bulk-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+.bl-bulk-clear {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.bl-bulk-clear:hover {
+  background: var(--surface-2);
+}
+.bl-bulk-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.bl-bulk-assign-anchor {
+  position: relative;
+  flex: none;
+}
+.bl-bulk-assign {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.bl-bulk-assign:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.bl-bulk-assign:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.bl-bulk-delete {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.bl-bulk-delete:hover:not(:disabled) {
+  border-color: var(--overdue);
+  color: var(--overdue);
+}
+.bl-bulk-delete:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.bl-bulkbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

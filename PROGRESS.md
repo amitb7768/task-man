@@ -375,3 +375,46 @@ Live verify: 11/11 PASS on scratch DB (bootstrap, provisioning, aging,
 board/staleOpen, rollover gate, 3 security probes incl. lowercase-key attack,
 move/terminal-bump/undo round-trip, history pagination + cross-team 403,
 personal views weekOf-free). go vet/test + npm build green.
+
+---
+
+## Session 2026-07-28 — v7 BUILD: Backlog planning pool + Month-view daily rollup
+
+Grill (6 locked decisions) → contract docs/DESIGN_V7_BACKLOG.md → same
+pipeline: 2 parallel Sonnet implementors (server / UI) → Opus adversarial
+review → Sonnet fixer → Sonnet live E2E verify. No design-mockup round
+(built directly from the design system; only new component is AssignPopover).
+
+Backlog: sentinel horizon "backlog" (period must be ""), private per-ADMIN
+(ownerId = creator, existing derivation untouched), title/notes/priority only
+(dueDate/recurrence/teamId all 400 via final-state validateTaskFields),
+GET /api/backlog (requireAdmin, createdAt desc), Search excludes backlog
+unless horizon=backlog (SearchView opt-in option), assignment = existing
+personal→team PATCH flip {teamId, horizon:daily, period:today, assigneeId?,
+dueDate?} → ownerId cleared + weekOf stamped; undo = constant un-assign PATCH
+(assigneeId cleared in same call). UI: ADMIN-only "Backlog" nav (Plan group,
+first role-gated tab), BacklogView (priority groups, bulk bar Assign…/Delete,
+CompletedFold), AssignPopover (team → member with open counts → optional due),
+TaskComposer context="backlog". Tests: backlog_test.go (6 funcs incl.
+PATCH-path negatives + assignee-membership 400).
+
+Month rollup: Week view already had per-day daily rollup (research finding —
+no change); ViewMonth's per-week loop widened with $or to include daily tasks
+dated in that week ∩ month (prefix clamp). Response shape + MonthView.tsx
+untouched. Boundary semantics: spanning ISO week shows in both months, its
+daily tasks only in their own month.
+
+Opus verdict FIX-THEN-SHIP, no blockers (v6-class JSON-key bypass structurally
+impossible — all gates check the merged struct). Fixed: M1 detail panel
+"Backlog · Invalid Date" → "Unscheduled"; M2 TaskDetail due/repeat controls
+hidden for backlog (were guaranteed 400s); M3 false "USER can delete" claim in
+auth docs; m1 false reschedule-400 comment (it's a silent no-op) + Reschedule
+now skips backlog; m2/m3 missing tests added; m4 AssignPopover stale-fetch
+guard; DESIGN.md month line. Accepted: parentId edge (UI-unreachable),
+backlog-under-backlog cosmetic, series-index 500 (API-only), partial-failure
+undo gap (pre-existing repo idiom — systemic ticket, not this wave).
+
+Live verify: 10/10 PASS on scratch DB taskman_v7_verify (park/assign/undo
+round-trip, 4 validation 400s, USER 403 + per-admin isolation, search
+exclusion/opt-in, month rollup + June/July boundary week, v6 regression
+smoke). go vet/test + npm build green.
