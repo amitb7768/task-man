@@ -312,7 +312,15 @@ func taskScopeFilter(u *ctxUser) bson.M {
 	if u.SystemRole == RoleAdmin {
 		teamCond = bson.M{"teamId": bson.M{"$exists": true}}
 	} else {
-		teamCond = bson.M{"teamId": bson.M{"$in": u.TeamIDs}}
+		// A genuinely team-less USER has u.TeamIDs == nil, which marshals to
+		// BSON null; Mongo rejects "$in": null with "(BadValue) $in needs an
+		// array" (500), not an empty match. Normalize to an empty slice so
+		// the $in is well-formed and simply matches nothing.
+		teamIDs := u.TeamIDs
+		if teamIDs == nil {
+			teamIDs = []bson.ObjectID{}
+		}
+		teamCond = bson.M{"teamId": bson.M{"$in": teamIDs}}
 	}
 	return bson.M{"$or": []bson.M{personal, teamCond}}
 }
@@ -709,6 +717,12 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	if err := json.Unmarshal(raw, t); err != nil {
 		return nil, badRequest("invalid JSON: %s", err.Error())
 	}
+	// Capture the client's explicit weekOf (if any) right after unmarshal —
+	// the personal/team-flip switch below is about to overwrite t.WeekOf
+	// with its own default, and the ADMIN-only weekOf move/undo primitive
+	// (docs/DESIGN_V6_WEEK_ROLLOVER.md) needs the client's value reapplied
+	// after that switch has had its say (see weekOfPatched block below).
+	patchedWeekOf := t.WeekOf
 	// Immutable/system-managed fields: never client-settable via patch.
 	t.ID = orig.ID
 	t.SeriesID = orig.SeriesID
@@ -761,6 +775,12 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		if u != nil && u.SystemRole != RoleAdmin {
 			return nil, forbiddenErr("only an admin can change weekOf")
 		}
+		// Reapply the client's explicit weekOf now that the ADMIN check has
+		// passed — the personal/team-flip switch above may have clobbered it
+		// with its own default (e.g. personal->team stamps the current
+		// week), but an explicit patch is the v6 move/undo primitive and
+		// must win over that default.
+		t.WeekOf = patchedWeekOf
 		if t.TeamID == nil {
 			return nil, badRequest("weekOf is not valid on a personal task")
 		}

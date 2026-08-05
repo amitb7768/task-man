@@ -418,3 +418,36 @@ Live verify: 10/10 PASS on scratch DB taskman_v7_verify (park/assign/undo
 round-trip, 4 validation 400s, USER 403 + per-admin isolation, search
 exclusion/opt-in, month rollup + June/July boundary week, v6 regression
 smoke). go vet/test + npm build green.
+
+---
+
+## Session 2026-08-05 — v8 BUILD: Attention scheduling, backlog moves, single-task reassign
+
+Grill (4 locked decisions) → contract docs/DESIGN_V8_ATTENTION_REASSIGN.md →
+pipeline: parallel Sonnet implementors (UI / server-tests) → Opus adversarial
+review → Sonnet fixer → Sonnet live E2E verify.
+
+Attention: bulk-bar "Schedule for…" date picker (generalized reschedule —
+dated → dueDate+period move, undated → period of D for its horizon, recurring
+not skipped, anchor untouched); bulk-bar "Move to backlog" (skips recurring +
+team-tasks-for-USER + parents-with-subtasks, toast reports skips; ADMIN
+un-teams into private backlog; conditional undo restores teamId/assigneeId/
+weekOf only for ex-team tasks, single PATCH); rows now open TaskDetail
+(title click / Enter / Space; checkbox still selects). TaskDetail: Assignee
+row for team tasks (lazy teamBoard fetch, "Name · N open", Unassigned,
+refetch-after-reassign, stale-board + placeholder guards).
+
+Planned as UI+tests-only; test implementor's deliberate red test + review
+forced two surgical server fixes: B1 explicit ADMIN weekOf now survives the
+personal→team flip stamp (undo primitive was clobbered — code contradicted
+its own comment); B2 taskScopeFilter normalizes nil TeamIDs (team-less USER
+500'd on Attention/Search via BSON-null $in; dodge-test fixtures converted
+into real coverage). Opus also caught M1 (dated schedule-for left period
+stale → task missing from target Day view) and M2 (parent-with-subtasks
+400s the whole park batch) + 6 minors (Space key a11y, bulk bar clickable
+over slide-over, assignee-row races, undo weekOf:"" 400 edge).
+
+v8_test.go: 8 test funcs, all green (62/62 suite). Live verify: 21/21 PASS
+on scratch DB taskman_v8_verify (both server fixes exercised over the wire,
+M1 semantics land task in target Day view, subtask guard, reassign paths,
+v6/v7 regression smoke). go vet/test + npm build green.

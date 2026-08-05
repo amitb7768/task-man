@@ -18,6 +18,7 @@ import type {
   RecurrenceFreq,
   Status,
   TaskView,
+  TeamBoardResponse,
   UpdateTaskInput,
 } from "../api";
 import { api, ApiError, horizonRank } from "../api";
@@ -32,6 +33,7 @@ import {
 } from "../period";
 import { notifyTasksChanged } from "../App";
 import { useAuth } from "../auth/AuthContext";
+import { isCompletedStatus } from "./CompletedFold";
 import StatusControl from "./StatusControl";
 import { showToast } from "./Toast";
 import "../styles/task-detail.css";
@@ -140,6 +142,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
   const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
   const [deletingTask, setDeletingTask] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [teamBoard, setTeamBoard] = useState<TeamBoardResponse | null>(null);
 
   useEffect(() => setCurrentId(id), [id]);
 
@@ -168,6 +171,34 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
     };
   }, [currentId]);
 
+  // Assignee row (team tasks only) — lazy-fetch the team board once the row
+  // would render, same fetch-effect + cancelled-guard shape as the getTask
+  // effect above. Reused for its member list + open-count derivation, same
+  // as components/AssignPopover.tsx.
+  useEffect(() => {
+    const teamId = detail?.teamId;
+    // Clear any prior team's board immediately — otherwise switching from a
+    // team-A task to a team-B task would render team-A's members/counts
+    // until team-B's fetch resolves.
+    setTeamBoard(null);
+    if (!teamId) {
+      return;
+    }
+    let cancelled = false;
+    api
+      .teamBoard(teamId)
+      .then((b) => {
+        if (!cancelled) setTeamBoard(b);
+      })
+      .catch(() => {
+        // Non-fatal — the assignee select just stays disabled; the rest of
+        // the panel still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.teamId]);
+
   const requestClose = useCallback(() => {
     setClosing((already) => {
       if (already) return already;
@@ -188,7 +219,11 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
     alert(e instanceof ApiError ? e.message : String(e));
   }
 
-  async function patch(update: UpdateTaskInput) {
+  // onSuccess fires only after the PATCH actually lands — used by the
+  // assignee select to refetch teamBoard so "N open" counts don't go stale
+  // (m4: cheapest fix is refetching inline once the patch resolves, rather
+  // than plumbing a refresh counter through the fetch effect).
+  async function patch(update: UpdateTaskInput, onSuccess?: () => void) {
     if (!detail) return;
     setSaveState("saving");
     try {
@@ -196,6 +231,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
       setDetail((d) => (d ? { ...updated, children: d.children } : d));
       notifyTasksChanged();
       onChanged();
+      onSuccess?.();
     } catch (e) {
       fail(e);
     } finally {
@@ -328,6 +364,17 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
     ? HORIZONS.filter((h) => horizonRank[h] <= horizonRank[detail.horizon])
     : [];
 
+  // Same open-count derivation as AssignPopover's member list
+  // (components/AssignPopover.tsx) — just sourced from this row's own
+  // teamBoard fetch instead of the popover's per-pick one.
+  const assigneeOptions = teamBoard
+    ? teamBoard.members.map(({ member, tasks }) => ({
+        id: member.id,
+        name: member.name,
+        open: tasks.filter((t) => !isCompletedStatus(t.status)).length,
+      }))
+    : [];
+
   const rec = detail?.recurrence;
   const done = detail?.progress.done ?? 0;
   const total = detail?.progress.total ?? 0;
@@ -450,6 +497,46 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                     >
                       clear
                     </button>
+                  </div>
+                )}
+
+                {detail.teamId && (
+                  <div className="td-row">
+                    <span className="td-row-label">
+                      Assignee{teamBoard ? ` · ${teamBoard.team.name}` : ""}
+                    </span>
+                    <select
+                      className="td-assignee-select"
+                      value={detail.assigneeId ?? ""}
+                      disabled={!teamBoard}
+                      onChange={(e) => {
+                        const teamId = detail.teamId;
+                        patch({ assigneeId: e.target.value || null }, () => {
+                          // Refetch so "N open" counts reflect the new
+                          // assignment instead of going stale (m4).
+                          if (teamId) {
+                            api
+                              .teamBoard(teamId)
+                              .then(setTeamBoard)
+                              .catch(() => {});
+                          }
+                        });
+                      }}
+                    >
+                      <option value="">Unassigned</option>
+                      {/* teamBoard hasn't resolved (loading or failed) but the
+                          task already has an assignee — render a placeholder
+                          option so the select isn't blank; no name info is
+                          available client-side without the board (m3). */}
+                      {!teamBoard && detail.assigneeId && (
+                        <option value={detail.assigneeId}>Assigned</option>
+                      )}
+                      {assigneeOptions.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} · {m.open} open
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

@@ -102,6 +102,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
 }
 .attn-check.checked,
@@ -109,9 +110,7 @@
   border-color: var(--accent);
   background: var(--accent);
 }
-.attn-check-btn {
-  cursor: pointer;
-}
+.attn-check:focus-visible,
 .attn-check-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -133,7 +132,6 @@
   border-radius: var(--radius-row);
   padding: 0 14px 0 12px;
   height: 56px;
-  cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
 }
 .attn-row:hover {
@@ -142,10 +140,6 @@
 .attn-row.selected {
   background: var(--accent-soft);
   border-color: var(--accent);
-}
-.attn-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .attn-tick {
@@ -158,6 +152,12 @@
 .attn-main {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.attn-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .attn-title {
@@ -251,6 +251,36 @@
   margin: 0 4px;
 }
 
+.attn-bulk-schedule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.attn-schedule-input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.attn-bulk-schedule-apply {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.attn-bulk-schedule-apply:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .attn-bulk-reschedule {
   display: flex;
   align-items: center;
@@ -287,6 +317,24 @@
   background: var(--surface);
   border-color: var(--done);
   color: var(--done);
+}
+
+.attn-bulk-backlog {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.attn-bulk-backlog:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--text-muted);
 }
 
 .attn-bulk-delete {

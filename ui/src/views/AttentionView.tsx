@@ -5,7 +5,7 @@
 // that reschedules/completes/deletes immediately (no confirm()), each
 // followed by an undo toast per docs/DESIGN_V2_UI.md "Undo wiring".
 import { useEffect, useMemo, useState } from "react";
-import type { AttentionViewResponse, Priority, Status, TaskView } from "../api";
+import type { AttentionViewResponse, Horizon, Priority, Status, TaskView, UpdateTaskInput } from "../api";
 import { api, ApiError } from "../api";
 import {
   currentMonth,
@@ -15,10 +15,12 @@ import {
   formatWeekShort,
   isoWeekMonday,
   parseDate,
+  toISOWeek,
   today,
 } from "../period";
 import { notifyTasksChanged } from "../App";
 import { useAuth } from "../auth/AuthContext";
+import TaskDetail from "../components/TaskDetail";
 import { dismissToast, showToast } from "../components/Toast";
 import "../styles/attention.css";
 
@@ -35,6 +37,24 @@ function daysBetween(earlier: string, later: string): number {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// Recurring instances are never eligible for backlog parking — they'd
+// collide on the unique {seriesId, period:""} index and the series
+// respawns them anyway (docs/DESIGN_V8_ATTENTION_REASSIGN.md). Same test
+// v6 rollover's Move uses (views/TeamRollover.tsx isRecurring).
+function isRecurring(t: TaskView): boolean {
+  return !!(t.recurrence || t.seriesId);
+}
+
+// "Schedule for D" generalizes reschedule-to-today: dated tasks get D as
+// their dueDate; undated tasks get the period containing D for their
+// horizon, staying undated (docs/DESIGN_V8_ATTENTION_REASSIGN.md).
+function periodOf(dateStr: string, horizon: Horizon): string {
+  if (horizon === "daily") return dateStr;
+  if (horizon === "weekly") return toISOWeek(dateStr);
+  if (horizon === "monthly") return dateStr.slice(0, 7);
+  return dateStr; // backlog tasks never surface in Attention
 }
 
 // Overdue = has a dueDate in the past. Reason/chip both derive from the same
@@ -85,32 +105,40 @@ function AttentionRow({
   section,
   selected,
   onToggle,
+  onOpen,
 }: {
   task: TaskView;
   section: SectionKey;
   selected: boolean;
   onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const { reason, chip } = section === "overdue" ? overdueCopy(task) : slippedCopy(task);
   return (
-    <div
-      className={`attn-row${selected ? " selected" : ""}`}
-      role="checkbox"
-      aria-checked={selected}
-      tabIndex={0}
-      onClick={() => onToggle(task.id)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onToggle(task.id);
-        }
-      }}
-    >
-      <span className={`attn-check${selected ? " checked" : ""}`} aria-hidden="true">
+    <div className={`attn-row${selected ? " selected" : ""}`}>
+      <button
+        type="button"
+        className={`attn-check${selected ? " checked" : ""}`}
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? "Deselect task" : "Select task"}
+        onClick={() => onToggle(task.id)}
+      >
         {selected && <CheckGlyph />}
-      </span>
+      </button>
       <span className="attn-tick" style={{ background: PRIORITY_COLOR[task.priority] }} />
-      <div className="attn-main">
+      <div
+        className="attn-main"
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpen(task.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen(task.id);
+          }
+        }}
+      >
         <div className="attn-title">{task.title}</div>
         <div className="attn-reason">{reason}</div>
       </div>
@@ -129,6 +157,7 @@ function Section({
   selected,
   onToggle,
   onToggleAll,
+  onOpen,
 }: {
   title: string;
   dot: string;
@@ -139,6 +168,7 @@ function Section({
   selected: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: (ids: string[]) => void;
+  onOpen: (id: string) => void;
 }) {
   if (tasks.length === 0) return null;
   const ids = tasks.map((t) => t.id);
@@ -165,7 +195,14 @@ function Section({
       </div>
       <div className="attn-rows">
         {tasks.map((t) => (
-          <AttentionRow key={t.id} task={t} section={section} selected={selected.has(t.id)} onToggle={onToggle} />
+          <AttentionRow
+            key={t.id}
+            task={t}
+            section={section}
+            selected={selected.has(t.id)}
+            onToggle={onToggle}
+            onOpen={onOpen}
+          />
         ))}
       </div>
     </div>
@@ -179,6 +216,8 @@ export default function AttentionView() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
 
   function reload() {
     setError(null);
@@ -266,6 +305,51 @@ export default function AttentionView() {
     }
   }
 
+  async function runScheduleFor() {
+    if (busy || selected.size === 0 || !scheduleDate) return;
+    const ids = Array.from(selected);
+    const targetDate = scheduleDate;
+    // Safe .map + filter-null shape (same as runMarkDone's `remembered`) —
+    // taskById.get(id) can miss (stale selection), and a bare `!` here ran
+    // outside any try/catch, so a miss became an unhandled promise
+    // rejection instead of a caught, reported error.
+    const found = ids
+      .map((id) => {
+        const t = taskById.get(id);
+        return t ? { id, task: t } : null;
+      })
+      .filter((r): r is { id: string; task: TaskView } => r !== null);
+    // Same undo shape as runReschedule — {id, period, dueDate} — since this
+    // is the same PATCH family, just with an arbitrary date instead of today.
+    const remembered = found.map(({ id, task: t }) => ({ id, period: t.period, dueDate: t.dueDate ?? "" }));
+    setBusy(true);
+    try {
+      await Promise.all(
+        found.map(({ id, task: t }) =>
+          t.dueDate
+            ? api.updateTask(id, { dueDate: targetDate, period: periodOf(targetDate, t.horizon) })
+            : api.updateTask(id, { period: periodOf(targetDate, t.horizon) }),
+        ),
+      );
+      setSelected(new Set());
+      setScheduleDate("");
+      reload();
+      notifyTasksChanged();
+      showToast(`${plural(found.length, "task")} scheduled for ${formatCompactDate(targetDate)}`, () => {
+        Promise.all(remembered.map((r) => api.updateTask(r.id, { period: r.period, dueDate: r.dueDate })))
+          .then(() => {
+            reload();
+            notifyTasksChanged();
+          })
+          .catch(fail);
+      });
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runMarkDone() {
     if (busy || selected.size === 0) return;
     const ids = Array.from(selected);
@@ -322,6 +406,74 @@ export default function AttentionView() {
     }
   }
 
+  // Eligibility (client-side, docs/DESIGN_V8_ATTENTION_REASSIGN.md): NOT
+  // recurring AND (personal OR actor is ADMIN) AND no subtasks — a parent
+  // with subtasks 400s server-side ("backlog is coarser than child's
+  // horizon"); progress.total is the direct-child count (server/CLAUDE.md).
+  // Ineligible tasks are skipped and counted in the toast (v6 rollover-Move
+  // precedent).
+  async function runMoveToBacklog() {
+    if (busy || selected.size === 0) return;
+    const ids = Array.from(selected);
+    const found = ids.map((id) => taskById.get(id)).filter((t): t is TaskView => !!t);
+    const eligible = found.filter((t) => !isRecurring(t) && (!t.teamId || isAdmin) && t.progress.total === 0);
+    const skipped = found.length - eligible.length;
+    // Snapshot for undo: {id, horizon, period, dueDate, teamId, assigneeId,
+    // weekOf} — but teamId/assigneeId/weekOf are only ever present on tasks
+    // that HAD a teamId; a USER's restore PATCH must never carry a bare
+    // weekOf key (403 per v6 rule), and personal tasks never had one. weekOf
+    // itself is omitted (not sent as "") when falsy: an explicit "" would
+    // fail parseISOWeek server-side and 400 the whole undo Promise.all batch
+    // (fail-fast) if a team task's weekOf were ever absent.
+    const remembered = eligible.map((t) => {
+      const base = { id: t.id, horizon: t.horizon, period: t.period, dueDate: t.dueDate ?? "" };
+      return t.teamId
+        ? { ...base, teamId: t.teamId, assigneeId: t.assigneeId ?? null, ...(t.weekOf ? { weekOf: t.weekOf } : {}) }
+        : base;
+    });
+    setBusy(true);
+    try {
+      await Promise.all(
+        eligible.map((t) =>
+          t.teamId
+            ? api.updateTask(t.id, { teamId: null, assigneeId: null, horizon: "backlog", period: "", dueDate: "" })
+            : api.updateTask(t.id, { horizon: "backlog", period: "", dueDate: "" }),
+        ),
+      );
+      setSelected(new Set());
+      reload();
+      notifyTasksChanged();
+      showToast(
+        `Moved ${plural(eligible.length, "task")} to backlog${skipped ? ` · ${plural(skipped, "task")} skipped` : ""}`,
+        () => {
+          Promise.all(
+            remembered.map((r) => {
+              // Conditional restore PATCH: teamId/assigneeId/weekOf keys
+              // only for tasks that had a teamId — combined into ONE PATCH
+              // per task (never two calls).
+              const patch: UpdateTaskInput = { horizon: r.horizon, period: r.period, dueDate: r.dueDate };
+              if ("teamId" in r) {
+                patch.teamId = r.teamId;
+                patch.assigneeId = r.assigneeId;
+                if ("weekOf" in r) patch.weekOf = r.weekOf;
+              }
+              return api.updateTask(r.id, patch);
+            }),
+          )
+            .then(() => {
+              reload();
+              notifyTasksChanged();
+            })
+            .catch(fail);
+        },
+      );
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const hasItems = !!data && data.overdue.length + data.slipped.length > 0;
   const selCount = selected.size;
 
@@ -349,6 +501,7 @@ export default function AttentionView() {
             selected={selected}
             onToggle={toggle}
             onToggleAll={toggleSectionAll}
+            onOpen={setSelectedId}
           />
           <Section
             title="Slipped"
@@ -360,6 +513,7 @@ export default function AttentionView() {
             selected={selected}
             onToggle={toggle}
             onToggleAll={toggleSectionAll}
+            onOpen={setSelectedId}
           />
         </div>
       )}
@@ -376,7 +530,13 @@ export default function AttentionView() {
         </div>
       )}
 
-      <div className={`attn-bulkbar${selCount > 0 ? " visible" : ""}`} aria-hidden={selCount === 0}>
+      {/* Hidden while the detail slide-over is open — the bulk bar's z-index
+          (90) floats above TaskDetail (40/41), which would otherwise let it
+          intercept clicks over the open panel. */}
+      <div
+        className={`attn-bulkbar${selCount > 0 && !selectedId ? " visible" : ""}`}
+        aria-hidden={selCount === 0 || !!selectedId}
+      >
         <span className="attn-bulk-count">{selCount} selected</span>
         <button type="button" className="attn-bulk-clear" title="Clear selection" onClick={() => setSelected(new Set())}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -385,6 +545,24 @@ export default function AttentionView() {
           </svg>
         </button>
         <div className="attn-bulk-divider" />
+        <div className="attn-bulk-schedule">
+          <input
+            type="date"
+            className="attn-schedule-input"
+            min={today()}
+            value={scheduleDate}
+            aria-label="Schedule for date"
+            onChange={(e) => setScheduleDate(e.target.value)}
+          />
+          <button
+            type="button"
+            className="attn-bulk-schedule-apply"
+            disabled={busy || !scheduleDate}
+            onClick={runScheduleFor}
+          >
+            Apply
+          </button>
+        </div>
         <button type="button" className="attn-bulk-reschedule" disabled={busy} onClick={runReschedule}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -397,6 +575,9 @@ export default function AttentionView() {
         <button type="button" className="attn-bulk-done" disabled={busy} onClick={runMarkDone}>
           Mark done
         </button>
+        <button type="button" className="attn-bulk-backlog" disabled={busy} onClick={runMoveToBacklog}>
+          Move to backlog
+        </button>
         {isAdmin && (
           <button type="button" className="attn-bulk-delete" title="Delete" disabled={busy} onClick={runDelete}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -407,6 +588,8 @@ export default function AttentionView() {
           </button>
         )}
       </div>
+
+      {selectedId && <TaskDetail id={selectedId} onClose={() => setSelectedId(null)} onChanged={reload} />}
     </div>
   );
 }

@@ -272,6 +272,22 @@
   cursor: not-allowed;
 }
 
+/* Assignee (team tasks only) */
+.td-assignee-select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.td-assignee-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Horizon (read-only) */
 .td-horizon-value {
   display: flex;
