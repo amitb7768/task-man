@@ -19,6 +19,23 @@ export interface Recurrence {
   dayOfMonth?: number; // 1..31
 }
 
+// v9 daily-notes activity entry (docs/DESIGN_V9_NOTES_SUMMARY.md "A. Data
+// model"). kind "note": text/by/byName/editedAt meaningful. kind "status":
+// from/to meaningful (auto-logged server-side on every status change), never
+// client-editable.
+export interface ActivityEntry {
+  id: string;
+  kind: "note" | "status";
+  date: string; // YYYY-MM-DD, machine-local "daily" bucket
+  at: string; // ISO datetime — server instant of the write
+  by?: string;
+  byName?: string;
+  text?: string; // kind=note only
+  from?: string; // kind=status only
+  to?: string; // kind=status only
+  editedAt?: string;
+}
+
 export interface TaskView {
   id: string;
   title: string;
@@ -42,6 +59,10 @@ export interface TaskView {
   // Drives board visibility (undated open + terminal tasks only show when
   // weekOf === the board's current week) and the rollover/history queries.
   weekOf?: string;
+  // v9 (docs/DESIGN_V9_NOTES_SUMMARY.md): the daily-notes/status log. Present
+  // on full-doc reads (GET /api/tasks/{id}); list/board/search endpoints
+  // project it away server-side, so it's absent there — never assume presence.
+  activity?: ActivityEntry[];
 }
 
 export interface TaskDetail extends TaskView {
@@ -185,6 +206,42 @@ export interface SearchParams {
   overdue?: boolean;
 }
 
+// v9 date-range summary (docs/DESIGN_V9_NOTES_SUMMARY.md "B. Endpoint —
+// summary"). No teamId -> "me" scope (caller's personal + assigned-to-me).
+export interface SummaryScope {
+  teamId?: string;
+  assigneeId?: string;
+}
+
+export interface SummaryTask {
+  id: string;
+  title: string;
+  status: Status;
+  priority: Priority;
+  horizon: Horizon;
+  dueDate?: string;
+  teamId?: string;
+  teamName?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  createdAt: string;
+  closedDate?: string;
+  overdue: boolean;
+  notes: ActivityEntry[];
+}
+
+export interface SummaryResponse {
+  from: string;
+  to: string;
+  teamId?: string;
+  teamName?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  completed: SummaryTask[];
+  updated: SummaryTask[];
+  added: SummaryTask[];
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -276,6 +333,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ tasks }),
     }),
+
+  // v9 daily notes (docs/DESIGN_V9_NOTES_SUMMARY.md "A. Endpoints — notes").
+  // date defaults to today-local server-side when omitted; backdating and
+  // future dates are both allowed.
+  addNote: (id: string, input: { text: string; date?: string }) =>
+    request<ActivityEntry>(`/tasks/${id}/notes`, { method: "POST", body: JSON.stringify(input) }),
+  editNote: (id: string, noteId: string, input: { text: string; date?: string }) =>
+    request<ActivityEntry>(`/tasks/${id}/notes/${noteId}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteNote: (id: string, noteId: string) =>
+    request<void>(`/tasks/${id}/notes/${noteId}`, { method: "DELETE" }),
+
+  // v9 date-range summary (docs/DESIGN_V9_NOTES_SUMMARY.md "B. Endpoint —
+  // summary"). scope.teamId absent -> me-scope (personal + assigned-to-me).
+  summary: (from: string, to: string, scope: SummaryScope) =>
+    request<SummaryResponse>(`/summary${qs({ from, to, teamId: scope.teamId, assigneeId: scope.assigneeId })}`),
 
   dayView: (date: string) => request<DayViewResponse>(`/views/day${qs({ date })}`),
   weekView: (week: string) => request<WeekViewResponse>(`/views/week${qs({ week })}`),

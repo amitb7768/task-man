@@ -1,0 +1,176 @@
+/* ==========================================================================
+   Summary panel — date-range task summary (docs/DESIGN_V9_NOTES_SUMMARY.md).
+   Owned + imported by ui/src/components/SummaryPanel.tsx only. Reuses the
+   .td-backdrop/.td-panel slide-over shell (task-detail.css, already in the
+   bundle wherever TaskDetail is mounted) — only summary-specific chrome
+   lives here, prefixed .sp-*. Tokens come from index.css.
+   ========================================================================== */
+
+.sp-title-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sp-title {
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+.sp-scope-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.sp-date-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sp-range-sep {
+  color: var(--text-faint);
+}
+.sp-range-error {
+  padding: 0 24px 10px;
+}
+
+.sp-section {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.sp-section:first-child {
+  border-top: none;
+}
+.sp-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sp-section-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.sp-section-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.sp-section-empty {
+  padding: 0;
+}
+
+.sp-task-list {
+  display: flex;
+  flex-direction: column;
+}
+.sp-task {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sp-task:last-child {
+  border-bottom: none;
+}
+.sp-task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sp-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-pill {
+  flex: none;
+  font-size: 10.5px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 2px 7px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.sp-pill-done {
+  color: var(--done);
+  background: var(--done-soft);
+  border-color: transparent;
+}
+.sp-pill-cancelled {
+  color: var(--text-faint);
+}
+.sp-pill-in_progress {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.sp-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.sp-overdue {
+  color: var(--overdue);
+}
+
+.sp-notes {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sp-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.sp-note-status {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.sp-note-date {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text-faint);
+  margin-right: 6px;
+}
+.sp-note-by {
+  font-weight: 500;
+  margin-right: 4px;
+}
+.sp-note-by::after {
+  content: ":";
+}
+
+.sp-footer {
+  gap: 10px;
+}

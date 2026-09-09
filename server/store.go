@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -94,6 +95,50 @@ type Task struct {
 	CreatedAt   time.Time      `bson:"createdAt" json:"createdAt"`
 	UpdatedAt   time.Time      `bson:"updatedAt" json:"updatedAt"`
 	CompletedAt *time.Time     `bson:"completedAt,omitempty" json:"completedAt,omitempty"`
+	// Activity is the task's append-only daily-notes/status timeline
+	// (docs/DESIGN_V9_NOTES_SUMMARY.md). System-managed: never settable
+	// through POST/PATCH /api/tasks — only the /notes endpoints and
+	// PatchTask's status auto-log write it. Embedded on the task doc so
+	// cascade-delete + raw-doc restore round-trip it for free; list reads
+	// project it away (see findViews), so never write back a doc that came
+	// from a projected read.
+	Activity []ActivityEntry `bson:"activity,omitempty" json:"activity,omitempty"`
+}
+
+// Activity entry kinds.
+const (
+	ActivityNote   = "note"
+	ActivityStatus = "status"
+)
+
+// maxNoteLen bounds a note's text (docs/DESIGN_V9_NOTES_SUMMARY.md).
+const maxNoteLen = 4000
+
+// ActivityEntry is one timeline entry on a Task: either a user-written note
+// (kind "note", carrying Text) or an auto-logged status transition (kind
+// "status", carrying From/To). Date is the machine-local "YYYY-MM-DD" day
+// bucket the entry belongs to — backdating is allowed and intended, so it is
+// deliberately independent of At (the server instant of the write). ByName is
+// denormalized at write time so reads never join against members.
+type ActivityEntry struct {
+	ID       bson.ObjectID  `bson:"_id" json:"id"`
+	Kind     string         `bson:"kind" json:"kind"`
+	Date     string         `bson:"date" json:"date"`
+	At       time.Time      `bson:"at" json:"at"`
+	By       *bson.ObjectID `bson:"by,omitempty" json:"by,omitempty"`
+	ByName   string         `bson:"byName,omitempty" json:"byName,omitempty"`
+	Text     string         `bson:"text,omitempty" json:"text,omitempty"`
+	From     string         `bson:"from,omitempty" json:"from,omitempty"`
+	To       string         `bson:"to,omitempty" json:"to,omitempty"`
+	EditedAt *time.Time     `bson:"editedAt,omitempty" json:"editedAt,omitempty"`
+}
+
+// localDate formats an instant as its machine-local "YYYY-MM-DD" day bucket,
+// reusing period.go's formatter. The .Local() is load-bearing on anything
+// read back from Mongo, which hands back UTC instants (server/CLAUDE.md:
+// "time.Local for all period math; Mongo stores UTC instants").
+func localDate(t time.Time) string {
+	return currentPeriodAt(HorizonDaily, t.Local())
 }
 
 type Progress struct {
@@ -473,6 +518,7 @@ func (s *Store) validateTaskFields(ctx context.Context, t *Task, selfID *bson.Ob
 func (s *Store) CreateTask(ctx context.Context, t *Task) (*TaskView, error) {
 	t.ID = bson.NewObjectID()
 	t.SeriesID = nil // system-managed; ignore any client-supplied value
+	t.Activity = nil // system-managed; a task starts with an empty timeline
 	if t.Status == "" {
 		t.Status = StatusTodo
 	}
@@ -587,7 +633,15 @@ func (s *Store) toViews(ctx context.Context, tasks []Task) ([]TaskView, error) {
 }
 
 func (s *Store) findViews(ctx context.Context, filter bson.M) ([]TaskView, error) {
-	cur, err := s.tasks.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}}))
+	// activity is projected away on every list read (board/views/search/
+	// attention): a task's whole note log has no place in a list payload
+	// (docs/DESIGN_V9_NOTES_SUMMARY.md). The flip side is that these Tasks are
+	// INCOMPLETE — never write one back with ReplaceOne/InsertOne or the log
+	// is wiped. Full-doc reads (getTaskRaw, DeleteTaskCascade, Materialize,
+	// Summary) deliberately keep it.
+	cur, err := s.tasks.Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: 1}}).
+		SetProjection(bson.M{"activity": 0}))
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +696,12 @@ func (s *Store) GetTaskDetail(ctx context.Context, id bson.ObjectID) (*TaskDetai
 	if err != nil {
 		return nil, err
 	}
-	cur, err := s.tasks.Find(ctx, bson.M{"parentId": id}, options.Find().SetSort(bson.D{{Key: "createdAt", Value: 1}}))
+	// The children are a list payload and are never written back — same
+	// projection as findViews. The detail's OWN activity comes from
+	// getTaskRaw above and is untouched by this.
+	cur, err := s.tasks.Find(ctx, bson.M{"parentId": id}, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: 1}}).
+		SetProjection(bson.M{"activity": 0}))
 	if err != nil {
 		return nil, err
 	}
@@ -670,20 +729,52 @@ func (s *Store) GetTaskDetail(ctx context.Context, id bson.ObjectID) (*TaskDetai
 	return &TaskDetail{TaskView: view, Children: childViews}, nil
 }
 
-// PatchTask applies a partial JSON update onto the existing task (fields
-// absent from raw are left unchanged, since json.Unmarshal only overwrites
-// keys present in the input) and revalidates the merged result.
+// patchAttempts bounds PatchTask's optimistic-concurrency retry loop.
+// ponytail: plain retries, no backoff — a 10-way burst of concurrent note
+// writes on ONE task still 409s ~40% of PATCHes at 3 attempts (live verify
+// 2026-09-03); 8 covers realistic single-user contention. Add jitter if a
+// real workload ever hits the 409.
+const patchAttempts = 8
+
+// PatchTask applies a partial JSON update onto the existing task and
+// revalidates the merged result. The write is a whole-doc ReplaceOne, i.e. a
+// read-modify-write of the activity log — a concurrent note write landing
+// between the read and the replace would be silently erased. patchTaskOnce
+// therefore guards its replace on the updatedAt it read, and this loop redoes
+// the whole patch (fresh read included) when the doc moved underneath.
 func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*TaskView, error) {
+	for i := 0; i < patchAttempts; i++ {
+		view, conflict, err := s.patchTaskOnce(ctx, id, raw)
+		if err != nil {
+			return nil, err
+		}
+		if !conflict {
+			return view, nil
+		}
+	}
+	return nil, conflictErr("task changed concurrently, retry")
+}
+
+// patchTaskOnce is one attempt at PatchTask: read, merge (fields absent from
+// raw are left unchanged, since json.Unmarshal only overwrites keys present in
+// the input), validate, replace. It reports conflict=true (and no error) when
+// the compare-and-swap on updatedAt found nothing to replace — the caller
+// retries from the fresh read.
+func (s *Store) patchTaskOnce(ctx context.Context, id bson.ObjectID, raw []byte) (*TaskView, bool, error) {
 	t, err := s.getTaskRaw(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	orig := *t
 	u := userFromContext(ctx)
 	if u != nil && !canAccessTask(u, &orig) {
-		return nil, forbiddenErr("not allowed")
+		return nil, false, forbiddenErr("not allowed")
 	}
-	now := time.Now()
+	// Truncated to milliseconds because that is BSON's datetime resolution:
+	// the value handed back in the response body must equal what a later read
+	// returns, and orig.UpdatedAt (read from Mongo) must compare exactly in
+	// the ReplaceOne filter below.
+	now := time.Now().Truncate(time.Millisecond)
 
 	// weekOf is a plain string field: json.Unmarshal only overwrites keys
 	// present in the input, but comparing the merged value against orig
@@ -693,7 +784,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	// weekOf patch, checked below once teamId/status merging settles).
 	var patchFields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &patchFields); err != nil {
-		return nil, badRequest("invalid JSON: %s", err.Error())
+		return nil, false, badRequest("invalid JSON: %s", err.Error())
 	}
 	// json.Unmarshal onto the Task struct matches field names case-
 	// insensitively, so a differently-cased key (e.g. "weekof") would still
@@ -714,8 +805,15 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	// cloneRecurrence also deep-copies the Interval sub-field (itself a
 	// pointer), otherwise an interval-only change would never be detected.
 	origRecurrence := cloneRecurrence(t.Recurrence)
+	// activity is system-managed and never client-settable. Nil it BEFORE the
+	// unmarshal: json.Unmarshal into a NON-nil slice resets its length to 0
+	// and then appends into the SAME backing array, which orig.Activity still
+	// aliases (orig is a shallow copy) — a client-sent array would silently
+	// overwrite the real log's elements. Nil first so any client-sent array
+	// allocates fresh; the restore below then discards it.
+	t.Activity = nil
 	if err := json.Unmarshal(raw, t); err != nil {
-		return nil, badRequest("invalid JSON: %s", err.Error())
+		return nil, false, badRequest("invalid JSON: %s", err.Error())
 	}
 	// Capture the client's explicit weekOf (if any) right after unmarshal —
 	// the personal/team-flip switch below is about to overwrite t.WeekOf
@@ -727,6 +825,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	t.ID = orig.ID
 	t.SeriesID = orig.SeriesID
 	t.CreatedAt = orig.CreatedAt
+	t.Activity = orig.Activity // discard anything the client sent (see above)
 
 	// A USER may not move a task across the team/personal boundary at all —
 	// only ADMIN can (docs/AUTH_FEATURES.md matrix: task DELETE/team-
@@ -736,7 +835,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	// personal->team, and team->other-team; ADMIN's ownerId auto-derive
 	// below is unaffected.
 	if u != nil && u.SystemRole != RoleAdmin && !sameTeamID(orig.TeamID, t.TeamID) {
-		return nil, forbiddenErr("only an admin can change a task's team")
+		return nil, false, forbiddenErr("only an admin can change a task's team")
 	}
 
 	// ownerId mirrors the personal/team invariant (docs/AUTH_FEATURES.md
@@ -762,7 +861,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		t.OwnerID = orig.OwnerID
 	}
 	if u != nil && u.SystemRole != RoleAdmin && t.TeamID != nil && !containsID(u.TeamIDs, *t.TeamID) {
-		return nil, forbiddenErr("not a member of that team")
+		return nil, false, forbiddenErr("not a member of that team")
 	}
 
 	// weekOf: system-managed except for the ADMIN-only direct-patch
@@ -773,7 +872,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	// touch weekOf, even on their own team's tasks.
 	if weekOfPatched {
 		if u != nil && u.SystemRole != RoleAdmin {
-			return nil, forbiddenErr("only an admin can change weekOf")
+			return nil, false, forbiddenErr("only an admin can change weekOf")
 		}
 		// Reapply the client's explicit weekOf now that the ADMIN check has
 		// passed — the personal/team-flip switch above may have clobbered it
@@ -782,10 +881,10 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		// must win over that default.
 		t.WeekOf = patchedWeekOf
 		if t.TeamID == nil {
-			return nil, badRequest("weekOf is not valid on a personal task")
+			return nil, false, badRequest("weekOf is not valid on a personal task")
 		}
 		if _, _, err := parseISOWeek(t.WeekOf); err != nil {
-			return nil, badRequest("invalid weekOf: %s", err.Error())
+			return nil, false, badRequest("invalid weekOf: %s", err.Error())
 		}
 	}
 
@@ -811,12 +910,12 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 	}
 
 	if err := s.validateTaskFields(ctx, t, &id); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if t.Horizon != orig.Horizon {
 		if err := s.validateChildrenHorizon(ctx, id, t.Horizon); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -832,7 +931,7 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		if changed {
 			anchor, err := computeAnchor(t.Recurrence.Freq, t.Period)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			t.Recurrence.Anchor = anchor
 		} else {
@@ -840,14 +939,44 @@ func (s *Store) PatchTask(ctx context.Context, id bson.ObjectID, raw []byte) (*T
 		}
 	}
 
-	if _, err := s.tasks.ReplaceOne(ctx, bson.M{"_id": id}, t); err != nil {
-		return nil, err
+	// Status auto-log (docs/DESIGN_V9_NOTES_SUMMARY.md): a status transition
+	// appends a kind:"status" entry so the timeline reads "Mon: todo ->
+	// in_progress · Tue: note…". Appended LAST, after every validation has
+	// passed, so a rejected patch leaves no trace in the log. u is nil in
+	// direct Store tests -> by/byName stay empty. CreateTask logs nothing
+	// (createdAt is the event); Reschedule/restore/Materialize never touch it.
+	if orig.Status != t.Status {
+		e := ActivityEntry{
+			ID:   bson.NewObjectID(),
+			Kind: ActivityStatus,
+			Date: localDate(now),
+			At:   now,
+			From: orig.Status,
+			To:   t.Status,
+		}
+		if u != nil {
+			uid := u.ID
+			e.By, e.ByName = &uid, u.Name
+		}
+		t.Activity = append(t.Activity, e)
+	}
+
+	// Compare-and-swap on the updatedAt we read: a note write ($push/$set) that
+	// landed since getTaskRaw has already moved it, and replacing the whole doc
+	// would erase that note. orig.UpdatedAt came from Mongo (millisecond
+	// precision) so the equality filter is exact.
+	res, err := s.tasks.ReplaceOne(ctx, bson.M{"_id": id, "updatedAt": orig.UpdatedAt}, t)
+	if err != nil {
+		return nil, false, err
+	}
+	if res.MatchedCount == 0 {
+		return nil, true, nil
 	}
 	view, err := s.toView(ctx, *t)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &view, nil
+	return &view, false, nil
 }
 
 // validateChildrenHorizon returns a 400 error if any direct child of
@@ -1638,10 +1767,14 @@ func (s *Store) TeamRollover(ctx context.Context, teamID bson.ObjectID) (week st
 		"dueDate": bson.M{"$exists": false},
 		"weekOf":  bson.M{"$lt": W},
 	}
-	cur, err := s.tasks.Find(ctx, filter, options.Find().SetSort(bson.D{
-		{Key: "weekOf", Value: 1},
-		{Key: "createdAt", Value: 1},
-	}))
+	cur, err := s.tasks.Find(ctx, filter, options.Find().
+		SetSort(bson.D{
+			{Key: "weekOf", Value: 1},
+			{Key: "createdAt", Value: 1},
+		}).
+		// Same list-read projection as findViews — rollover candidates are a
+		// list payload and these Tasks are never written back.
+		SetProjection(bson.M{"activity": 0}))
 	if err != nil {
 		return "", nil, err
 	}
@@ -1704,7 +1837,10 @@ func (s *Store) TeamHistory(ctx context.Context, teamID bson.ObjectID, offset, l
 	cur, err := s.tasks.Find(ctx, filter, options.Find().
 		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
 		SetSkip(int64(offset)).
-		SetLimit(int64(limit+1)))
+		SetLimit(int64(limit+1)).
+		// Same list-read projection as findViews — history is a list payload,
+		// and these Tasks are read-only (never written back).
+		SetProjection(bson.M{"activity": 0}))
 	if err != nil {
 		return nil, false, err
 	}
@@ -1746,4 +1882,469 @@ func sortBoardTasks(tasks []TaskView) {
 		}
 		return ad < bd
 	})
+}
+
+// ---- daily notes (task activity log) ----
+
+// NoteInput is the client-settable half of a note entry
+// (docs/DESIGN_V9_NOTES_SUMMARY.md). Every other ActivityEntry field is
+// server-derived.
+type NoteInput struct {
+	Text string `json:"text"`
+	Date string `json:"date"`
+}
+
+// noteTask loads the task a note endpoint targets and enforces
+// canAccessTask, so personal-task privacy governs the note surface exactly
+// as it governs the task itself: a foreign USER — or ADMIN — on someone's
+// personal task gets 403. Also returns the caller (nil in direct Store
+// tests).
+func (s *Store) noteTask(ctx context.Context, taskID bson.ObjectID) (*Task, *ctxUser, error) {
+	t, err := s.getTaskRaw(ctx, taskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := userFromContext(ctx)
+	if u != nil && !canAccessTask(u, t) {
+		return nil, nil, forbiddenErr("not allowed")
+	}
+	return t, u, nil
+}
+
+// validateNote validates a note body, returning the trimmed text and the
+// resolved date. fallbackDate covers an omitted "date": today-local on add,
+// the entry's existing date on edit — so an edit never silently re-dates a
+// backdated note. Any date is accepted (backdating is intended; future dates
+// are unbounded), it just has to be well-formed.
+func validateNote(in NoteInput, fallbackDate string) (text, date string, err error) {
+	text = strings.TrimSpace(in.Text)
+	if text == "" {
+		return "", "", badRequest("text is required")
+	}
+	if utf8.RuneCountInString(text) > maxNoteLen {
+		return "", "", badRequest("text must be at most %d characters", maxNoteLen)
+	}
+	if in.Date == "" {
+		return text, fallbackDate, nil
+	}
+	if _, err := parseDate(in.Date); err != nil {
+		return "", "", badRequest("invalid date: %s", err.Error())
+	}
+	return text, in.Date, nil
+}
+
+// findNote locates an entry by id and enforces the two rules shared by edit
+// and delete: it must exist (404), must be a note rather than an auto-logged
+// status transition (400), and must belong to the caller unless they are
+// ADMIN (403).
+func findNote(t *Task, u *ctxUser, noteID bson.ObjectID) (*ActivityEntry, error) {
+	for i := range t.Activity {
+		e := &t.Activity[i]
+		if e.ID != noteID {
+			continue
+		}
+		if e.Kind != ActivityNote {
+			return nil, badRequest("only note entries can be edited or deleted")
+		}
+		if u != nil && u.SystemRole != RoleAdmin && (e.By == nil || *e.By != u.ID) {
+			return nil, forbiddenErr("not your note")
+		}
+		return e, nil
+	}
+	return nil, notFoundErr("note not found")
+}
+
+// AddNote appends a note to a task's timeline. The write is a single atomic
+// $push — never a read-modify-write of the array — so concurrent notes can't
+// clobber each other. Note mutations bump updatedAt (the task was touched).
+func (s *Store) AddNote(ctx context.Context, taskID bson.ObjectID, in NoteInput) (*ActivityEntry, error) {
+	_, u, err := s.noteTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Truncate(time.Millisecond) // BSON datetime resolution
+	text, date, err := validateNote(in, localDate(now))
+	if err != nil {
+		return nil, err
+	}
+	e := ActivityEntry{
+		ID:   bson.NewObjectID(),
+		Kind: ActivityNote,
+		Date: date,
+		At:   now,
+		Text: text,
+	}
+	if u != nil {
+		uid := u.ID
+		e.By, e.ByName = &uid, u.Name
+	}
+	res, err := s.tasks.UpdateOne(ctx, bson.M{"_id": taskID}, bson.M{
+		"$push": bson.M{"activity": e},
+		"$set":  bson.M{"updatedAt": now},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The task can be deleted between the permission read and the $push.
+	if res.MatchedCount == 0 {
+		return nil, notFoundErr("task not found")
+	}
+	return &e, nil
+}
+
+// EditNote rewrites a note's text/date in place, stamping editedAt. The
+// permission check needs the entry's "by", so the task is read first; the
+// update itself is still a single positional $set, not a whole-array write.
+func (s *Store) EditNote(ctx context.Context, taskID, noteID bson.ObjectID, in NoteInput) (*ActivityEntry, error) {
+	t, u, err := s.noteTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	e, err := findNote(t, u, noteID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Truncate(time.Millisecond) // BSON datetime resolution
+	text, date, err := validateNote(in, e.Date)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.tasks.UpdateOne(ctx,
+		bson.M{"_id": taskID, "activity._id": noteID},
+		bson.M{"$set": bson.M{
+			"activity.$.text":     text,
+			"activity.$.date":     date,
+			"activity.$.editedAt": now,
+			"updatedAt":           now,
+		}})
+	if err != nil {
+		return nil, err
+	}
+	if res.MatchedCount == 0 {
+		return nil, notFoundErr("note not found")
+	}
+	out := *e
+	out.Text, out.Date, out.EditedAt = text, date, &now
+	return &out, nil
+}
+
+// DeleteNote removes a note entry ($pull, atomic). Undo is a client-side
+// re-POST, which lands under a fresh id — accepted (docs/DESIGN_V9_NOTES_SUMMARY.md).
+func (s *Store) DeleteNote(ctx context.Context, taskID, noteID bson.ObjectID) error {
+	t, u, err := s.noteTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if _, err := findNote(t, u, noteID); err != nil {
+		return err
+	}
+	_, err = s.tasks.UpdateOne(ctx, bson.M{"_id": taskID}, bson.M{
+		"$pull": bson.M{"activity": bson.M{"_id": noteID}},
+		"$set":  bson.M{"updatedAt": time.Now()},
+	})
+	return err
+}
+
+// ---- summary ----
+
+// SummaryParams is GET /api/summary's parsed query string.
+type SummaryParams struct {
+	From, To   string
+	TeamID     *bson.ObjectID
+	AssigneeID *bson.ObjectID
+}
+
+// SummaryTask is one row of a summary section: the reporting-relevant task
+// fields plus the entries from its timeline that fall inside the range.
+type SummaryTask struct {
+	ID           bson.ObjectID   `json:"id"`
+	Title        string          `json:"title"`
+	Status       string          `json:"status"`
+	Priority     string          `json:"priority"`
+	Horizon      string          `json:"horizon"`
+	DueDate      string          `json:"dueDate,omitempty"`
+	TeamID       *bson.ObjectID  `json:"teamId,omitempty"`
+	TeamName     string          `json:"teamName,omitempty"`
+	AssigneeID   *bson.ObjectID  `json:"assigneeId,omitempty"`
+	AssigneeName string          `json:"assigneeName,omitempty"`
+	CreatedAt    time.Time       `json:"createdAt"`
+	ClosedDate   string          `json:"closedDate,omitempty"`
+	Overdue      bool            `json:"overdue"`
+	Notes        []ActivityEntry `json:"notes"`
+}
+
+// SummaryResult is GET /api/summary's response. teamId/teamName appear only
+// in team scope, assigneeId/assigneeName only when filtered; the three
+// section slices are always non-nil.
+type SummaryResult struct {
+	From         string         `json:"from"`
+	To           string         `json:"to"`
+	TeamID       *bson.ObjectID `json:"teamId,omitempty"`
+	TeamName     string         `json:"teamName,omitempty"`
+	AssigneeID   *bson.ObjectID `json:"assigneeId,omitempty"`
+	AssigneeName string         `json:"assigneeName,omitempty"`
+	Completed    []SummaryTask  `json:"completed"`
+	Updated      []SummaryTask  `json:"updated"`
+	Added        []SummaryTask  `json:"added"`
+}
+
+// summaryClosedDate returns the local date a terminal task closed on: done ->
+// completedAt's local date; cancelled -> the date of the LAST kind:"status"
+// entry that moved it to cancelled. Falls back to updatedAt's local date for
+// tasks that closed before the activity log existed — a documented
+// approximation (docs/DESIGN_V9_NOTES_SUMMARY.md "Accepted consequences").
+func summaryClosedDate(t Task) string {
+	switch t.Status {
+	case StatusDone:
+		if t.CompletedAt != nil {
+			return localDate(*t.CompletedAt)
+		}
+	case StatusCancelled:
+		for i := len(t.Activity) - 1; i >= 0; i-- {
+			if e := t.Activity[i]; e.Kind == ActivityStatus && e.To == StatusCancelled {
+				return e.Date
+			}
+		}
+	default:
+		return ""
+	}
+	// The updatedAt fallback only holds for a task with NO log at all. Every
+	// note bumps updatedAt, so a single comment on a legacy cancelled task
+	// would otherwise date it "today" and teleport it into the current week's
+	// Completed. With any activity present, return "" and let it fall through
+	// to the *updated* section instead.
+	if len(t.Activity) > 0 {
+		return ""
+	}
+	return localDate(t.UpdatedAt)
+}
+
+// Summary reports what happened to the caller's tasks between two dates, for
+// pasting into a weekly update (docs/DESIGN_V9_NOTES_SUMMARY.md). One Mongo
+// query (scope AND a candidate $or) fetches full docs — activity included,
+// so no projection here — and classification happens in Go. CSV/Markdown are
+// rendered client-side from this JSON; there is no non-JSON server surface.
+func (s *Store) Summary(ctx context.Context, p SummaryParams) (*SummaryResult, error) {
+	if p.From == "" || p.To == "" {
+		return nil, badRequest("from and to are required")
+	}
+	fromT, err := parseDate(p.From)
+	if err != nil {
+		return nil, badRequest("invalid from: %s", err.Error())
+	}
+	toT, err := parseDate(p.To)
+	if err != nil {
+		return nil, badRequest("invalid to: %s", err.Error())
+	}
+	if p.From > p.To { // zero-padded dates: string compare is the repo idiom
+		return nil, badRequest("from must not be after to")
+	}
+	if p.AssigneeID != nil && p.TeamID == nil {
+		return nil, badRequest("assigneeId requires teamId")
+	}
+	fromStart := time.Date(fromT.Year(), fromT.Month(), fromT.Day(), 0, 0, 0, 0, time.Local)
+	toEnd := time.Date(toT.Year(), toT.Month(), toT.Day(), 0, 0, 0, 0, time.Local).AddDate(0, 0, 1)
+
+	res := &SummaryResult{
+		From:      p.From,
+		To:        p.To,
+		Completed: []SummaryTask{},
+		Updated:   []SummaryTask{},
+		Added:     []SummaryTask{},
+	}
+
+	// Scope: team scope follows the TeamBoard rule (ADMIN any team, USER own
+	// teams); me-scope is "own personal + assigned to me" — what a person
+	// pastes into their weekly update — still intersected with taskScopeFilter
+	// so it can never widen visibility.
+	u := userFromContext(ctx)
+	scope := bson.M{}
+	switch {
+	case p.TeamID != nil:
+		if u != nil && u.SystemRole != RoleAdmin && !containsID(u.TeamIDs, *p.TeamID) {
+			return nil, forbiddenErr("not a member of that team")
+		}
+		var team Team
+		err := s.teams.FindOne(ctx, bson.M{"_id": *p.TeamID}).Decode(&team)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, notFoundErr("team not found")
+		}
+		if err != nil {
+			return nil, err
+		}
+		res.TeamID, res.TeamName = p.TeamID, team.Name
+		scope = bson.M{"teamId": *p.TeamID}
+		if p.AssigneeID != nil {
+			scope["assigneeId"] = *p.AssigneeID
+			res.AssigneeID = p.AssigneeID
+		}
+	case u != nil:
+		scope = bson.M{"$and": []bson.M{
+			taskScopeFilter(u),
+			{"$or": []bson.M{{"ownerId": u.ID}, {"assigneeId": u.ID}}},
+		}}
+	}
+
+	// Materialize (every read path runs it) writes, so it goes AFTER every
+	// validation — a malformed or unauthorized request must perform no writes.
+	if err := s.Materialize(ctx); err != nil {
+		return nil, err
+	}
+
+	// Candidate filter: anything that could plausibly belong in a section.
+	// The activity clause MUST be $elemMatch — "activity.date": {$gte,$lte}
+	// would let DIFFERENT entries satisfy the two bounds, pulling in tasks
+	// with no entry actually inside the range.
+	candidate := bson.M{"$or": []bson.M{
+		{"completedAt": bson.M{"$gte": fromStart, "$lt": toEnd}},
+		{"status": StatusCancelled, "updatedAt": bson.M{"$gte": fromStart, "$lt": toEnd}},
+		{"activity": bson.M{"$elemMatch": bson.M{"date": bson.M{"$gte": p.From, "$lte": p.To}}}},
+		{"createdAt": bson.M{"$gte": fromStart, "$lt": toEnd}},
+	}}
+	cur, err := s.tasks.Find(ctx, bson.M{"$and": []bson.M{scope, candidate}})
+	if err != nil {
+		return nil, err
+	}
+	var tasks []Task
+	if err := cur.All(ctx, &tasks); err != nil {
+		return nil, err
+	}
+
+	// overdue compares against min(to, today): inside a past range, "overdue"
+	// means overdue as of the end of that range, not as of now.
+	dueCutoff := p.To
+	if today := currentPeriod(HorizonDaily); today < dueCutoff {
+		dueCutoff = today
+	}
+
+	for _, t := range tasks {
+		open := t.Status == StatusTodo || t.Status == StatusInProgress
+		st := SummaryTask{
+			ID:         t.ID,
+			Title:      t.Title,
+			Status:     t.Status,
+			Priority:   t.Priority,
+			Horizon:    t.Horizon,
+			DueDate:    t.DueDate,
+			TeamID:     t.TeamID,
+			AssigneeID: t.AssigneeID,
+			CreatedAt:  t.CreatedAt,
+			Overdue:    open && t.DueDate != "" && t.DueDate < dueCutoff,
+			Notes:      []ActivityEntry{},
+		}
+		for _, e := range t.Activity {
+			if e.Date >= p.From && e.Date <= p.To {
+				st.Notes = append(st.Notes, e)
+			}
+		}
+		sort.SliceStable(st.Notes, func(i, j int) bool {
+			a, b := st.Notes[i], st.Notes[j]
+			if a.Date != b.Date {
+				return a.Date < b.Date
+			}
+			return a.At.Before(b.At)
+		})
+
+		// First match wins, in this order. Anything else is dropped — a task
+		// merely retitled this week, or cancelled long ago, never appears.
+		closed := summaryClosedDate(t)
+		switch {
+		case !open && closed >= p.From && closed <= p.To:
+			st.ClosedDate = closed
+			res.Completed = append(res.Completed, st)
+		case len(st.Notes) > 0:
+			res.Updated = append(res.Updated, st)
+		case open && t.Horizon != HorizonBacklog &&
+			!t.CreatedAt.Before(fromStart) && t.CreatedAt.Before(toEnd):
+			res.Added = append(res.Added, st)
+		}
+	}
+
+	sections := []*[]SummaryTask{&res.Completed, &res.Updated, &res.Added}
+	for _, sec := range sections {
+		rows := *sec
+		sort.SliceStable(rows, func(i, j int) bool {
+			return strings.ToLower(rows[i].Title) < strings.ToLower(rows[j].Title)
+		})
+	}
+	if err := s.resolveSummaryNames(ctx, res, sections); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// resolveSummaryNames fills in assignee and team display names with one $in
+// query each (me-scope can span several teams), rather than a lookup per row.
+// byName is not resolved here — it is denormalized onto each entry at write
+// time.
+func (s *Store) resolveSummaryNames(ctx context.Context, res *SummaryResult, sections []*[]SummaryTask) error {
+	memberIDs := map[bson.ObjectID]bool{}
+	teamIDs := map[bson.ObjectID]bool{}
+	if res.AssigneeID != nil {
+		memberIDs[*res.AssigneeID] = true
+	}
+	for _, sec := range sections {
+		for _, row := range *sec {
+			if row.AssigneeID != nil {
+				memberIDs[*row.AssigneeID] = true
+			}
+			if row.TeamID != nil {
+				teamIDs[*row.TeamID] = true
+			}
+		}
+	}
+
+	memberNames, err := lookupNames(ctx, s.members, memberIDs)
+	if err != nil {
+		return err
+	}
+	teamNames, err := lookupNames(ctx, s.teams, teamIDs)
+	if err != nil {
+		return err
+	}
+
+	if res.AssigneeID != nil {
+		res.AssigneeName = memberNames[*res.AssigneeID]
+	}
+	for _, sec := range sections {
+		rows := *sec
+		for i := range rows {
+			if rows[i].AssigneeID != nil {
+				rows[i].AssigneeName = memberNames[*rows[i].AssigneeID]
+			}
+			if rows[i].TeamID != nil {
+				rows[i].TeamName = teamNames[*rows[i].TeamID]
+			}
+		}
+	}
+	return nil
+}
+
+// lookupNames fetches the "name" field of the given ids from a collection in
+// one query (both teams and members carry a "name").
+func lookupNames(ctx context.Context, coll *mongo.Collection, ids map[bson.ObjectID]bool) (map[bson.ObjectID]string, error) {
+	names := map[bson.ObjectID]string{}
+	if len(ids) == 0 {
+		return names, nil
+	}
+	list := make([]bson.ObjectID, 0, len(ids))
+	for id := range ids {
+		list = append(list, id)
+	}
+	cur, err := coll.Find(ctx, bson.M{"_id": bson.M{"$in": list}},
+		options.Find().SetProjection(bson.M{"name": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var docs []struct {
+		ID   bson.ObjectID `bson:"_id"`
+		Name string        `bson:"name"`
+	}
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	for _, d := range docs {
+		names[d.ID] = d.Name
+	}
+	return names, nil
 }

@@ -599,6 +599,99 @@
   cursor: pointer;
 }
 
+/* ---- Daily notes (v9 activity log) — reuses .td-sub-* spacing/typography
+   values, own classes prefixed .td-act-*. ---- */
+.td-activity {
+  padding: 16px 24px 28px;
+  border-top: 1px solid var(--border);
+}
+
+.td-act-list {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+.td-act-row {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.td-act-row:last-child {
+  border-bottom: none;
+}
+.td-act-meta {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.td-act-edited {
+  color: var(--text-faint);
+}
+.td-act-text {
+  font-size: 14px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.td-act-status-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.td-act-row-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 5px;
+}
+.td-act-row-actions .link {
+  font-size: 12px;
+}
+
+.td-act-editing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.td-act-edit-textarea,
+.td-act-add-textarea {
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.td-act-edit-row,
+.td-act-add-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.td-act-edit-date,
+.td-act-add-date {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+.td-act-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.td-act-add {
+  padding-top: 12px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.td-act-add-btn {
+  height: 30px;
+}
+
 /* ---- Footer ---- */
 .td-footer {
   flex: none;

@@ -38,6 +38,16 @@ func (a *api) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/tasks/reschedule", requireAuth(a.reschedule))
 	mux.HandleFunc("POST /api/tasks/restore", requireAdmin(a.restoreTasks))
 
+	// ---- daily notes (task activity log) ----
+	// requireAuth only; the per-task rule is canAccessTask inside the Store,
+	// so personal-task privacy applies (ADMIN included), and edit/delete are
+	// further narrowed to the entry's author (ADMIN any).
+	mux.HandleFunc("POST /api/tasks/{id}/notes", requireAuth(a.addNote))
+	mux.HandleFunc("PUT /api/tasks/{id}/notes/{noteId}", requireAuth(a.editNote))
+	mux.HandleFunc("DELETE /api/tasks/{id}/notes/{noteId}", requireAuth(a.deleteNote))
+
+	mux.HandleFunc("GET /api/summary", requireAuth(a.summary))
+
 	mux.HandleFunc("GET /api/views/day", requireAuth(a.viewDay))
 	mux.HandleFunc("GET /api/views/week", requireAuth(a.viewWeek))
 	mux.HandleFunc("GET /api/views/month", requireAuth(a.viewMonth))
@@ -204,6 +214,107 @@ func (a *api) reschedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"updated": n})
+}
+
+// ---- daily notes ----
+
+// pathNoteID is pathID's sibling for the {noteId} path segment.
+func pathNoteID(r *http.Request) (bson.ObjectID, error) {
+	id, err := bson.ObjectIDFromHex(r.PathValue("noteId"))
+	if err != nil {
+		return bson.ObjectID{}, badRequest("invalid note id")
+	}
+	return id, nil
+}
+
+func (a *api) addNote(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var in NoteInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, badRequest("invalid JSON: %s", err.Error()))
+		return
+	}
+	entry, err := a.store.AddNote(r.Context(), id, in)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, entry)
+}
+
+func (a *api) editNote(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	noteID, err := pathNoteID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var in NoteInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, badRequest("invalid JSON: %s", err.Error()))
+		return
+	}
+	entry, err := a.store.EditNote(r.Context(), id, noteID, in)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entry)
+}
+
+func (a *api) deleteNote(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	noteID, err := pathNoteID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := a.store.DeleteNote(r.Context(), id, noteID); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- summary ----
+
+func (a *api) summary(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p := SummaryParams{From: q.Get("from"), To: q.Get("to")}
+	if v := q.Get("teamId"); v != "" {
+		oid, err := bson.ObjectIDFromHex(v)
+		if err != nil {
+			writeErr(w, badRequest("invalid teamId"))
+			return
+		}
+		p.TeamID = &oid
+	}
+	if v := q.Get("assigneeId"); v != "" {
+		oid, err := bson.ObjectIDFromHex(v)
+		if err != nil {
+			writeErr(w, badRequest("invalid assigneeId"))
+			return
+		}
+		p.AssigneeID = &oid
+	}
+	res, err := a.store.Summary(r.Context(), p)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // ---- views ----

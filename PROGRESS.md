@@ -451,3 +451,52 @@ v8_test.go: 8 test funcs, all green (62/62 suite). Live verify: 21/21 PASS
 on scratch DB taskman_v8_verify (both server fixes exercised over the wire,
 M1 semantics land task in target Day view, subtask guard, reassign paths,
 v6/v7 regression smoke). go vet/test + npm build green.
+
+---
+
+## Session 2026-09-03 — v9 BUILD: Daily notes (activity log) + date-range summary
+
+Grill (4 locked decisions: timeline log w/ auto-logged status transitions;
+me-scope = personal + assigned-to-me; sections Completed/Updated/New;
+in-app panel + client-side CSV + Copy-as-Markdown) → contract
+docs/DESIGN_V9_NOTES_SUMMARY.md → pipeline: parallel implementors (server
+Opus / UI Sonnet) → parallel Opus adversarial reviews → fixers → live verify
+(curl E2E + agent-browser smoke) on scratch DB taskman_v9_verify.
+
+Server: `Task.Activity []ActivityEntry` embedded (system-managed; nil-before-
+unmarshal / restore-after in PatchTask; projected off every list read —
+findViews, TeamHistory, TeamRollover, detail children); `POST/PUT/DELETE
+/api/tasks/{id}/notes[/{noteId}]` (atomic $push / positional $set / $pull,
+canAccessTask + own-or-ADMIN, status entries immutable, 4000-rune cap,
+backdating allowed); status transitions auto-logged after validation;
+`GET /api/summary?from&to[&teamId&assigneeId]` — one query (scope ∧ $or of
+completedAt/cancelled-updatedAt/$elemMatch activity.date/createdAt), Go
+classification, names resolved with one $in each, all arrays non-nil.
+
+UI: TaskDetail "Daily notes" section (compose w/ date, Cmd/Ctrl+Enter,
+inline edit, delete → toast undo, status entries muted; description
+placeholder → "Description…"); SummaryPanel slide-over (from/to pickers,
+three sections, Copy as Markdown, Download CSV) mounted from TeamPage
+toolbar (team + selected member scope, board week) and the Week tab header
+(me-scope). `summaryFormat.ts` pure toCSV/toMarkdown + first UI test
+(`npm test` = node --test, 8 cases).
+
+Review caught (all fixed): H1 PatchTask's whole-doc ReplaceOne erased a
+concurrent note write (reproduced 3/6) → optimistic CAS on updatedAt with
+bounded retry (8) + 409; M1 one note on a legacy cancelled task teleported
+it into this week's Completed → updatedAt fallback only when the log is
+empty; UI H1 clipboard undefined on LAN http origins → guarded toast; UI H2
+delete-undo refresh rendered the wrong task after navigation → identity-
+checked setDetail; plus loading-stuck/stale-data in SummaryPanel, alert()
+in note flows → toast, aria-labels, focus-on-open, tab-switch mount gate,
+AddNote MatchedCount, Materialize-after-validation, ms-truncated `at`.
+
+v9_test.go: 8 test funcs incl. a real PATCH-vs-note race (fails 6/20
+without the CAS) and the legacy-cancelled regression. Full suite green,
+-race clean, gofmt/vet clean, npm build + 8/8 UI tests. Live verify: API
+9/9 PASS (1 skipped: legacy doc unseedable via API), zero 5xx; browser
+10/10 PASS, no console errors, CSV artifact matched spec.
+
+Known: `./taskman-bin` on :8484 predates v9 while ui/dist is already
+rebuilt — rebuild + restart before using the new UI live. Tauri shell has
+no blob downloads → Copy-as-Markdown is its export path.

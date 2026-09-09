@@ -16,9 +16,11 @@ import {
   formatWeekBadgePeriod,
   formatWeekLabel,
   today,
+  weekDates,
 } from "./period";
 import TaskComposer from "./components/TaskComposer";
 import ToastHost from "./components/Toast";
+import SummaryPanel from "./components/SummaryPanel";
 import DayView from "./views/DayView";
 import WeekView from "./views/WeekView";
 import MonthView from "./views/MonthView";
@@ -260,6 +262,7 @@ const SIDEBAR_KEY = "taskman-sidebar-expanded";
 export default function App() {
   const { user, logout } = useAuth();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   const [tab, setTab] = useState<NavKey>("day");
 
@@ -540,6 +543,11 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {tab === "week" && (
+                <button type="button" onClick={() => setSummaryOpen(true)}>
+                  Summary
+                </button>
+              )}
               {meta.quickAdd && (
                 // Single TaskComposer instance shared across the Day/Week/Month
                 // tabs (docs/DESIGN_V31_COMPOSER.md "v3.2"): this JSX position
@@ -593,6 +601,15 @@ export default function App() {
       </main>
 
       <ToastHost />
+      {summaryOpen && tab === "week" && (
+        <SummaryPanel
+          scope={{}}
+          scopeLabel="My tasks"
+          from={weekDates(weekPeriod)[0]}
+          to={weekDates(weekPeriod)[6]}
+          onClose={() => setSummaryOpen(false)}
+        />
+      )}
       {changePasswordOpen && <ChangePasswordPanel onClose={() => setChangePasswordOpen(false)} />}
     </div>
   );

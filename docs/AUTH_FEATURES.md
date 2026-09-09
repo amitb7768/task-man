@@ -69,6 +69,8 @@ PATCH /api/members/{id}  gains {systemRole?, disabled?}              (ADMIN)
 | GET /api/backlog (v7) | own backlog | 403 |
 | POST /api/tasks with horizon:"backlog" (v7) | ✓ (personal) | ✓ but nav tab hidden; harmless personal parking |
 | PATCH assigning backlog→team (v7) | ✓ (flip is ADMIN-only anyway) | 403 (existing flip rule) |
+| POST/PUT/DELETE /api/tasks/{id}/notes[/{noteId}] (v9) | any task within `canAccessTask` (so NOT another user's personal task); edit/delete any entry | any task within `canAccessTask`; edit/delete own entry only (403 otherwise) |
+| GET /api/summary (v9) | `teamId` scope: any team | `teamId` scope: own teams only (403 otherwise); me-scope (no `teamId`) = own personal + assigned-to-me |
 
 Note (v7): creation with horizon `"backlog"` is not role-blocked server-side
 — a USER doing it via raw API just gets an invisible personal task: it never

@@ -8,8 +8,12 @@ React 19 + TypeScript + Vite. **No router library** — navigation is hand-rolle
   view-local state inside the parent view (like TeamPage's members panel).
 - `src/views/` — one file per screen: DayView, WeekView, MonthView, AllTasksView,
   AttentionView, TeamsLanding, TeamPage (largest, ~1200 lines), SearchView.
-- `src/components/` — TaskRow, TaskDetail (slide-over), QuickAdd, TaskComposer,
-  CompletedFold, Toast.
+- `src/components/` — TaskRow, TaskDetail (slide-over; owns the "Daily
+  notes" activity section), QuickAdd, TaskComposer, CompletedFold, Toast,
+  SummaryPanel (date-range summary slide-over, mounted by TeamPage and by
+  App for the week tab) + `summaryFormat.ts` (PURE `toCSV`/`toMarkdown`,
+  no React/DOM — covered by `npm test` = `node --test test/`, the only
+  UI test; keep it importable from Node).
 - `src/api.ts` — the ONLY fetch layer: every endpoint call + all response types
   (`TaskView`, `TeamBoardResponse`, …). New endpoints get added here.
 - `src/period.ts` — all date/week math (`today`, `currentWeek`, `toISOWeek`,

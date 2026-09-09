@@ -32,3 +32,6 @@ Taskman UI redesign (2)/
 .vscode/
 .idea/
 *.swp
+
+# runtime logs
+*.log

@@ -41,6 +41,27 @@ Flat `package main`, stdlib `net/http` only, Mongo driver v2. Files:
 - Timezone: `time.Local` for all period math; Mongo stores UTC instants.
   Week = ISO-8601, Monday start.
 
+## Activity log (`Task.Activity`, v9 — docs/DESIGN_V9_NOTES_SUMMARY.md)
+
+- **System-managed**: never client-settable via `POST`/`PATCH /api/tasks`.
+  `CreateTask` nils it; `PatchTask` nils it BEFORE `json.Unmarshal` and
+  restores `orig.Activity` AFTER (unmarshal into a non-nil slice appends into
+  the SAME backing array `orig` aliases — it would corrupt the real log).
+- **List reads project it away** (`findViews`, `TeamHistory`). Consequently:
+  **never `ReplaceOne`/`InsertOne` a doc that came from a projected read** —
+  it would wipe the log. Full-doc reads (`getTaskRaw`, `DeleteTaskCascade`,
+  `Materialize`, `Summary`) keep it; today only `PatchTask` writes a whole
+  task doc back, and its `ReplaceOne` is optimistic — filtered on the
+  `updatedAt` it read, retried from a fresh read up to `patchAttempts` times
+  (then 409) — so a concurrent note write can never be clobbered.
+- **Status auto-log**: `PatchTask` appends a `kind:"status"` entry when the
+  status changed — after all validation, right before `ReplaceOne`, so a
+  rejected patch leaves no trace. `CreateTask` logs nothing (`createdAt` is
+  the event); `Reschedule`/restore/`Materialize` never touch it, and spawned
+  recurring instances start with an empty log.
+- Note writes are atomic (`$push`/positional `$set`/`$pull`), never a
+  read-modify-write of the array, and they bump `updatedAt`.
+
 ## Tests
 
 Real-Mongo harness in `testutil_test.go` (scratch DB per test, dropped in

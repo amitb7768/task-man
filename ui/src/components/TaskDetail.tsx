@@ -11,6 +11,7 @@
 // onClose and let the parent unmount us.
 import { useCallback, useEffect, useState } from "react";
 import type {
+  ActivityEntry,
   TaskDetail as TaskDetailData,
   Horizon,
   Priority,
@@ -25,6 +26,7 @@ import { api, ApiError, horizonRank } from "../api";
 import {
   currentMonth,
   currentWeek,
+  formatCompactDate,
   formatDayLabel,
   formatMonthLabel,
   formatWeekLabel,
@@ -143,8 +145,24 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
   const [deletingTask, setDeletingTask] = useState(false);
   const [closing, setClosing] = useState(false);
   const [teamBoard, setTeamBoard] = useState<TeamBoardResponse | null>(null);
+  // Daily notes (docs/DESIGN_V9_NOTES_SUMMARY.md "UI" — TaskDetail.tsx).
+  const [noteText, setNoteText] = useState("");
+  const [noteDate, setNoteDate] = useState(today());
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editNoteText, setEditNoteText] = useState("");
+  const [editNoteDate, setEditNoteDate] = useState("");
 
   useEffect(() => setCurrentId(id), [id]);
+
+  // Reset note-compose/edit draft state whenever the panel navigates to a
+  // different task (parent link, subtask click) — otherwise a half-typed
+  // note or an open editor would silently carry over onto the new task.
+  useEffect(() => {
+    setNoteText("");
+    setNoteDate(today());
+    setEditingNoteId(null);
+  }, [currentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,6 +262,84 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
     setDetail(d);
     notifyTasksChanged();
     onChanged();
+  }
+
+  // Daily notes reload: a plain refetch, no notifyTasksChanged()/onChanged()
+  // — lists don't show notes, so there's nothing elsewhere to refresh
+  // (docs/DESIGN_V9_NOTES_SUMMARY.md "TaskDetail.tsx" compose-row note).
+  // Identity-checked: only applies the refetched doc if the panel is still
+  // showing the same task it was fetched for (the panel may have navigated
+  // to a parent/subtask, or an undo may resolve after the fact).
+  async function refreshDetail(taskId: string) {
+    const d = await api.getTask(taskId);
+    setDetail((p) => (p && p.id === taskId ? d : p));
+  }
+
+  function canEditNote(entry: ActivityEntry): boolean {
+    return isAdmin || entry.by === user.id;
+  }
+
+  async function addNote() {
+    if (!detail || !noteText.trim() || noteBusy) return;
+    setNoteBusy(true);
+    try {
+      await api.addNote(detail.id, { text: noteText.trim(), date: noteDate || undefined });
+      setNoteText("");
+      setNoteDate(today());
+      await refreshDetail(detail.id);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setNoteBusy(false);
+    }
+  }
+
+  function startEditNote(entry: ActivityEntry) {
+    setEditingNoteId(entry.id);
+    setEditNoteText(entry.text ?? "");
+    setEditNoteDate(entry.date);
+  }
+
+  function cancelEditNote() {
+    setEditingNoteId(null);
+  }
+
+  async function saveEditNote() {
+    if (!detail || !editingNoteId || !editNoteText.trim() || noteBusy) return;
+    setNoteBusy(true);
+    try {
+      await api.editNote(detail.id, editingNoteId, { text: editNoteText.trim(), date: editNoteDate || undefined });
+      setEditingNoteId(null);
+      await refreshDetail(detail.id);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setNoteBusy(false);
+    }
+  }
+
+  async function deleteNote(entry: ActivityEntry) {
+    if (!detail || noteBusy) return;
+    const taskId = detail.id;
+    setNoteBusy(true);
+    try {
+      await api.deleteNote(taskId, entry.id);
+      await refreshDetail(taskId);
+      // Undo re-POSTs the entry's text/date as a fresh note (new id — the
+      // contract accepts this: "Deleting a note and undoing it re-creates
+      // the entry under a new id"). Uses the id captured at delete time, not
+      // whatever task the panel may be showing when the undo fires.
+      showToast("Note deleted", () => {
+        api
+          .addNote(taskId, { text: entry.text ?? "", date: entry.date })
+          .then(() => refreshDetail(taskId))
+          .catch((e) => showToast(e instanceof ApiError ? e.message : String(e)));
+      });
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setNoteBusy(false);
+    }
   }
 
   function setFreq(freq: RecurrenceFreq) {
@@ -380,6 +476,12 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
   const total = detail?.progress.total ?? 0;
   const pct = total ? Math.round((done / total) * 100) : 0;
 
+  // Newest date first, entries within a date by `at` desc (docs/DESIGN_V9_
+  // NOTES_SUMMARY.md "TaskDetail.tsx" list ordering).
+  const sortedActivity = (detail?.activity ?? [])
+    .slice()
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.at < b.at ? 1 : -1));
+
   return (
     <>
       <div className={`td-backdrop${closing ? " closing" : ""}`} onClick={requestClose} />
@@ -451,7 +553,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                   className="td-notes"
                   rows={2}
                   value={notesDraft}
-                  placeholder="Add notes…"
+                  placeholder="Description…"
                   onChange={(e) => setNotesDraft(e.target.value)}
                   onBlur={() => {
                     if (notesDraft !== (detail.notes ?? "")) {
@@ -713,6 +815,120 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="td-activity">
+                <div className="td-sub-head">
+                  <span className="td-sub-head-title">Daily notes</span>
+                </div>
+
+                <div className="td-act-list">
+                  {sortedActivity.length === 0 && <div className="empty">No notes yet.</div>}
+                  {sortedActivity.map((entry) => {
+                    if (entry.kind === "status") {
+                      return (
+                        <div className="td-act-row td-act-status" key={entry.id}>
+                          <div className="td-act-meta">
+                            {formatCompactDate(entry.date)} · {entry.byName || "—"}
+                          </div>
+                          <div className="td-act-status-text">
+                            {entry.from} → {entry.to}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (editingNoteId === entry.id) {
+                      return (
+                        <div className="td-act-row td-act-editing" key={entry.id}>
+                          <textarea
+                            className="td-act-edit-textarea"
+                            rows={2}
+                            value={editNoteText}
+                            onChange={(e) => setEditNoteText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                                e.preventDefault();
+                                saveEditNote();
+                              }
+                            }}
+                          />
+                          <div className="td-act-edit-row">
+                            <input
+                              type="date"
+                              className="td-act-edit-date"
+                              aria-label="Note date"
+                              value={editNoteDate}
+                              onChange={(e) => setEditNoteDate(e.target.value)}
+                            />
+                            <div className="td-act-edit-actions">
+                              <button type="button" onClick={cancelEditNote}>
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={!editNoteText.trim() || noteBusy}
+                                onClick={saveEditNote}
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const editable = canEditNote(entry);
+                    return (
+                      <div className="td-act-row" key={entry.id}>
+                        <div className="td-act-meta">
+                          {formatCompactDate(entry.date)} · {entry.byName || "—"}
+                          {entry.editedAt && <span className="td-act-edited"> · edited</span>}
+                        </div>
+                        <div className="td-act-text">{entry.text}</div>
+                        {editable && (
+                          <div className="td-act-row-actions">
+                            <button type="button" className="link" onClick={() => startEditNote(entry)}>
+                              Edit
+                            </button>
+                            <button type="button" className="link" onClick={() => deleteNote(entry)}>
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="td-act-add">
+                  <textarea
+                    className="td-act-add-textarea"
+                    rows={2}
+                    placeholder="Add a note…"
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        addNote();
+                      }
+                    }}
+                  />
+                  <div className="td-act-add-row">
+                    <input
+                      type="date"
+                      className="td-act-add-date"
+                      aria-label="Note date"
+                      value={noteDate}
+                      onChange={(e) => setNoteDate(e.target.value)}
+                    />
+                    <button type="button" className="td-act-add-btn" disabled={!noteText.trim() || noteBusy} onClick={addNote}>
+                      Add
+                    </button>
                   </div>
                 </div>
               </div>

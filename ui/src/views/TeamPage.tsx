@@ -14,13 +14,14 @@
 // created here) and the binding interaction contract (avatar filter scoping,
 // bulk-undo semantics, members panel mechanics).
 import { Fragment, useEffect, useMemo, useState } from "react";
-import type { Member, Status, SystemRole, TaskView, TeamBoardResponse } from "../api";
+import type { Member, Status, SummaryScope, SystemRole, TaskView, TeamBoardResponse } from "../api";
 import { api, ApiError } from "../api";
-import { currentWeek, formatDayBadgePeriod, formatWeekRangeUpper, isOverdue, today } from "../period";
+import { currentWeek, formatDayBadgePeriod, formatWeekRangeUpper, isOverdue, today, weekDates } from "../period";
 import { notifyTasksChanged } from "../App";
 import { useAuth } from "../auth/AuthContext";
 import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
+import SummaryPanel from "../components/SummaryPanel";
 import QuickAdd from "../components/QuickAdd";
 import type { QuickAddResult } from "../components/QuickAdd";
 import TaskComposer from "../components/TaskComposer";
@@ -218,6 +219,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
   const [board, setBoard] = useState<TeamBoardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [filterId, setFilterId] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -290,6 +292,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
     setSelected(new Set());
     setMembersOpen(false);
     setEditingId(null);
+    setSummaryOpen(false);
     setView("board");
     return () => dismissToast();
   }, [teamId]);
@@ -751,6 +754,27 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
 
   const anySelected = selected.size > 0;
 
+  // Summary scope/label/range (docs/DESIGN_V9_NOTES_SUMMARY.md "Mount points"
+  // — TeamPage). The UNASSIGNED chip isn't expressible as a summary scope
+  // (assigneeId omitted entirely) — with it selected, the label says so and
+  // the summary covers the whole team ("Accepted consequences").
+  const summaryScope: SummaryScope = useMemo(
+    () => ({ teamId, assigneeId: filterId && filterId !== UNASSIGNED ? filterId : undefined }),
+    [teamId, filterId],
+  );
+  const summaryScopeLabel = useMemo(() => {
+    const teamName = board?.team.name ?? "";
+    if (filterId && filterId !== UNASSIGNED) {
+      const member = memberById.get(filterId);
+      return member ? `${teamName} · ${member.name}` : teamName;
+    }
+    if (filterId === UNASSIGNED) {
+      return `${teamName} · whole team (Unassigned isn't a summary scope)`;
+    }
+    return teamName;
+  }, [board, filterId, memberById]);
+  const summaryRange = weekDates(board?.week ?? currentWeek());
+
   if (view === "rollover") {
     return (
       <TeamRollover
@@ -852,6 +876,15 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
               <line x1="11" y1="16" x2="20" y2="16" />
             </svg>
             Group by member
+          </button>
+          <button type="button" className="tp-group-toggle" disabled={!board} onClick={() => setSummaryOpen(true)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
+              <line x1="8" y1="13" x2="8" y2="16.5" />
+              <line x1="12" y1="9.5" x2="12" y2="16.5" />
+              <line x1="16" y1="11.5" x2="16" y2="16.5" />
+            </svg>
+            Summary
           </button>
           <span className="tp-open-label">{openLabel}</span>
         </div>
@@ -1241,6 +1274,15 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
       )}
 
       {selectedTaskId && <TaskDetail id={selectedTaskId} onClose={() => setSelectedTaskId(null)} onChanged={handleChanged} />}
+      {summaryOpen && (
+        <SummaryPanel
+          scope={summaryScope}
+          scopeLabel={summaryScopeLabel}
+          from={summaryRange[0]}
+          to={summaryRange[6]}
+          onClose={() => setSummaryOpen(false)}
+        />
+      )}
     </div>
   );
 }

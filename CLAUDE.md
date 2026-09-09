@@ -35,7 +35,12 @@ Task: `horizon` (`daily|weekly|monthly`) + `period` (`YYYY-MM-DD` | `YYYY-Www` |
 cancelled**, folded together as "completed" everywhere in the UI; `dueDate`
 optional `YYYY-MM-DD` string (independent of period); `priority`
 `""|low|medium|high`; subtasks via `parentId` (child horizon ≤ parent);
-recurrence + `seriesId` (instances materialized lazily on every read path).
+recurrence + `seriesId` (instances materialized lazily on every read path);
+`activity` — an embedded, system-managed timeline of dated `note` entries
+(author-owned) and auto-logged `status` transitions, only present on
+detail/PATCH responses, never on list reads; `GET /api/summary` classifies
+tasks over a date range into completed/updated/added for weekly reporting
+(`docs/DESIGN_V9_NOTES_SUMMARY.md`).
 
 **Personal task = `ownerId` set + `teamId` nil** (private, even from ADMIN).
 **Team task = `teamId` set + `ownerId` nil.** `assigneeId` requires `teamId`.
