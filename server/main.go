@@ -4,32 +4,35 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	"taskman/internal/repo"
 )
 
 func main() {
-	uri := envOr("MONGO_URI", "mongodb://localhost:27017")
-	dbName := envOr("MONGO_DB", "taskman")
+	dsn := os.Getenv("TASKMAN_PG_DSN")
+	if dsn == "" {
+		log.Fatal("TASKMAN_PG_DSN is not set (postgres://user:pass@host:5432/db?sslmode=disable; see .env.example)")
+	}
 	port := envOr("PORT", "8484")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	store, err := NewStore(ctx, uri, dbName)
+	// Boot order (docs/DESIGN_PG_FSM_MIGRATION.md): schema migrations first,
+	// then the pool, then the first-admin bootstrap.
+	if err := repo.Migrate(dsn); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+	db, err := repo.Open(dsn)
 	if err != nil {
-		log.Fatalf("connect mongo: %v", err)
+		log.Fatalf("open postgres: %v", err)
 	}
-	defer store.Close(context.Background())
-
-	if err := store.EnsureIndexes(ctx); err != nil {
-		log.Fatalf("ensure indexes: %v", err)
-	}
-	if err := store.BackfillWeekOf(ctx); err != nil {
-		log.Fatalf("backfill weekOf: %v", err)
-	}
-	if err := SeedAdmin(ctx, store); err != nil {
+	store := repo.New(db)
+	if err := repo.SeedAdmin(ctx, store); err != nil {
 		log.Fatalf("seed admin: %v", err)
 	}
 
@@ -51,10 +54,19 @@ func main() {
 	handler := chain(mux, requestLog, jsonGuard, a.sessionLoad, mustChangePasswordGate)
 
 	addr := ":" + port
-	log.Printf("taskman listening on %s (db %q)", addr, dbName)
+	log.Printf("taskman listening on %s (postgres %s)", addr, redactDSN(dsn))
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// redactDSN strips the password from a URL-form DSN for logging.
+func redactDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme == "" {
+		return "(dsn)"
+	}
+	return u.Redacted()
 }
 
 func envOr(key, def string) string {

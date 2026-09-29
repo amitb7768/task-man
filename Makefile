@@ -1,18 +1,26 @@
 .PHONY: up down mongo pg ui run test vet mac-dev mac-build
 
-# whole stack: mongo container + fresh UI build + server on :8484
-up: mongo ui run
+# Postgres DSNs (docs/DESIGN_PG_FSM_MIGRATION.md). Defaults match
+# docker-compose's `postgres` service; override from the environment (or a
+# sourced .env — see .env.example) for any other database.
+TASKMAN_PG_DSN ?= postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+TASKMAN_TEST_PG_DSN ?= postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
-# stop the server (whatever holds :8484) and the mongo container; data volume survives
+# whole stack: postgres container + fresh UI build + server on :8484
+up: pg ui run
+
+# stop the server (whatever holds :8484) and the compose containers; data volumes survive
 down:
 	-lsof -ti :8484 | xargs kill 2>/dev/null
 	docker compose down
 
+# Legacy: `docker compose up -d` (every compose service, mongo included).
+# The server no longer uses Mongo; this target stays until the
+# one-shot Mongo->Postgres data migration (P4, cmd/migrate-mongo) retires it.
 mongo:
 	docker compose up -d
 
-# Postgres target for the Mongo->Postgres migration
-# (docs/DESIGN_PG_FSM_MIGRATION.md). Not part of `up` yet.
+# The server's database (docker-compose `postgres` service).
 pg:
 	docker compose up -d postgres
 
@@ -20,10 +28,13 @@ ui:
 	cd ui && npm ci && npm run build
 
 run:
-	go run ./server
+	TASKMAN_PG_DSN='$(TASKMAN_PG_DSN)' go run ./server
 
+# Postgres-backed tests (internal/repo, server) each migrate a throwaway
+# scratch schema on TASKMAN_TEST_PG_DSN and drop it afterwards; they skip
+# when it's unset. Needs `make pg` up.
 test:
-	go test ./...
+	TASKMAN_TEST_PG_DSN='$(TASKMAN_TEST_PG_DSN)' go test ./...
 
 vet:
 	go vet ./...

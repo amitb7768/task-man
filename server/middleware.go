@@ -1,45 +1,20 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"taskman/internal/model"
 )
 
 // ---- request-scoped user (ctx plumbing) ----
-
-// ctxUser is the authenticated caller, attached to the request context by
-// sessionLoad once the session cookie resolves to a live session + member.
-// It carries just enough to drive every scoping decision in store.go without
-// re-fetching the member document per call.
-type ctxUser struct {
-	ID                 bson.ObjectID
-	Name               string
-	Email              string
-	SystemRole         string
-	TeamIDs            []bson.ObjectID
-	MustChangePassword bool
-	Disabled           bool
-}
-
-type ctxKey int
-
-const userCtxKey ctxKey = iota
-
-func withUser(ctx context.Context, u *ctxUser) context.Context {
-	return context.WithValue(ctx, userCtxKey, u)
-}
-
-// userFromContext returns the authenticated caller, or nil if the request
-// carried no valid session (public routes, or sessionLoad found nothing).
-func userFromContext(ctx context.Context) *ctxUser {
-	u, _ := ctx.Value(userCtxKey).(*ctxUser)
-	return u
-}
+//
+// The authenticated caller is a *model.CtxUser stored under internal/model's
+// context key (model.WithUser / model.UserFromContext) — the repo layer reads
+// the caller from THAT key for every scoping decision, so the middleware
+// writes it there directly.
 
 // ---- middleware chain ----
 
@@ -110,7 +85,7 @@ func jsonGuard(next http.Handler) http.Handler {
 }
 
 // sessionLoad reads the taskman_session cookie, resolves it to a live
-// session + member, and (on success) attaches a *ctxUser to the request
+// session + member, and (on success) attaches a *model.CtxUser to the request
 // context and slides the session's expiry. A missing/invalid/expired cookie
 // is not an error here — it just leaves the context without a user; routes
 // that require auth reject that downstream via requireAuth/requireAdmin.
@@ -128,7 +103,7 @@ func (a *api) sessionLoad(next http.Handler) http.Handler {
 			return
 		}
 		setSessionCookie(w, c.Value, newExpiry)
-		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), u)))
+		next.ServeHTTP(w, r.WithContext(model.WithUser(r.Context(), u)))
 	})
 }
 
@@ -146,7 +121,7 @@ var mustChangeExempt = map[string]bool{
 // through so the SPA shell can still render (fetch /api/auth/me etc.).
 func mustChangePasswordGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u := userFromContext(r.Context())
+		u := model.UserFromContext(r.Context())
 		if u != nil && u.MustChangePassword && isMutatingMethod(r.Method) && !mustChangeExempt[r.URL.Path] {
 			writeErr(w, forbiddenErr("password change required"))
 			return
@@ -159,7 +134,7 @@ func mustChangePasswordGate(next http.Handler) http.Handler {
 // user, otherwise delegates to next.
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if userFromContext(r.Context()) == nil {
+		if model.UserFromContext(r.Context()) == nil {
 			writeErr(w, unauthorizedErr("authentication required"))
 			return
 		}
@@ -170,7 +145,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 // requireAdmin is requireAuth plus a systemRole==ADMIN check (403 otherwise).
 func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		if userFromContext(r.Context()).SystemRole != RoleAdmin {
+		if model.UserFromContext(r.Context()).SystemRole != RoleAdmin {
 			writeErr(w, forbiddenErr("admin only"))
 			return
 		}

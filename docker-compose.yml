@@ -7,9 +7,9 @@ services:
     volumes:
       - taskman-mongo:/data/db
 
-  # Postgres target for the Mongo->Postgres migration
-  # (docs/DESIGN_PG_FSM_MIGRATION.md). Not wired into `make up` yet — bring
-  # it up explicitly with `make pg` once a wave needs it running.
+  # The server's database (docs/DESIGN_PG_FSM_MIGRATION.md); `make up` /
+  # `make pg` bring it up. The mongo service above is legacy, kept until the
+  # P4 data migration retires it.
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped

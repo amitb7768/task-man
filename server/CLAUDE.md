@@ -1,15 +1,22 @@
 # server/ — Go backend
 
-Flat `package main`, stdlib `net/http` only, Mongo driver v2. Files:
+Flat `package main`, stdlib `net/http` only — the HTTP layer. Persistence
+and business rules live in `internal/repo` (Postgres via gorm); domain types
+in `internal/model` (docs/DESIGN_PG_FSM_MIGRATION.md). Files:
 
-- `main.go` — env config, startup, middleware chain, `EnsureIndexes`
-- `handlers.go` — `routes()` + all HTTP handlers (thin JSON shells over Store)
+- `main.go` — env config (`TASKMAN_PG_DSN` required), boot:
+  `repo.Migrate → repo.Open → repo.New → repo.SeedAdmin → serve`
+- `handlers.go` — `routes()` + all HTTP handlers (thin JSON shells over `*repo.Store`);
+  ids are opaque strings end to end (no parsing — an unknown id is the repo's 404)
 - `middleware.go` — `requestLog → jsonGuard → sessionLoad → mustChangePasswordGate`;
-  `requireAuth` / `requireAdmin` wrappers; `ctxUser` + `userFromContext`
-- `auth.go` — login/logout/password endpoints, bcrypt, session issue
-- `store.go` — ALL Mongo access + business rules (~1400 lines); `Task`/`Team`/`Member` structs at top
-- `period.go` — pure date/period math (ISO weeks, `currentPeriod`, `datesInWeek`, `isoWeekMonday`)
-- `recur.go` — recurrence math backing `Materialize`
+  `requireAuth` / `requireAdmin`; caller is `*model.CtxUser` via
+  `model.WithUser` / `model.UserFromContext` (the key the repo reads)
+- `auth.go` — login/logout/password endpoints, session cookie, login backoff
+- `types.go` — aliases onto `internal/model` + handler-level `apiError`;
+  `writeErr` maps both it and `*repo.APIError`
+
+> The sections below were written against the Mongo-era `store.go`; the
+> rules still hold, but the code they point at now lives in `internal/repo`.
 
 ## Patterns to copy (don't invent new ones)
 
@@ -64,6 +71,8 @@ Flat `package main`, stdlib `net/http` only, Mongo driver v2. Files:
 
 ## Tests
 
-Real-Mongo harness in `testutil_test.go` (scratch DB per test, dropped in
-cleanup); `testServer`/`jsonClient` wrap the real middleware chain. Pure math
-covered in `period_test.go`/`recur_test.go`. `make test` needs Mongo up.
+Real-Postgres harness in `testutil_test.go`: each test migrates its own
+scratch schema on `TASKMAN_TEST_PG_DSN` (dropped in cleanup; tests skip when
+unset); `testServer`/`jsonClient` wrap the real middleware chain;
+`directMember`/`directTeam`/`directTask` seed rows straight into the schema.
+Pure math is covered in `internal/model`. `make test` needs `make pg` up.

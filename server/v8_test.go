@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // daysFromToday returns "today + n days" as a "YYYY-MM-DD" string, for
@@ -59,7 +57,7 @@ func TestV8AttentionClearsOnReschedule(t *testing.T) {
 		}
 		return decodeJSON[attentionBody](t, resp.Body)
 	}
-	hasTask := func(views []TaskView, id bson.ObjectID) bool {
+	hasTask := func(views []TaskView, id string) bool {
 		for _, v := range views {
 			if v.ID == id {
 				return true
@@ -87,7 +85,7 @@ func TestV8AttentionClearsOnReschedule(t *testing.T) {
 		}
 
 		futurePeriod := daysFromToday(10)
-		patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"period":%q}`, futurePeriod))
+		patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"period":%q}`, futurePeriod))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +120,7 @@ func TestV8AttentionClearsOnReschedule(t *testing.T) {
 		}
 
 		futureDue := daysFromToday(10)
-		patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"dueDate":%q}`, futureDue))
+		patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"dueDate":%q}`, futureDue))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,7 +174,7 @@ func TestV8RecurringInstancePeriodPatchPreservesAnchor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var before Task
-	if err := store.tasks.FindOne(ctx, bson.M{"_id": created.ID}).Decode(&before); err != nil {
+	if err := testDB(t, store).WithContext(ctx).Where("id = ?", created.ID).Take(&before).Error; err != nil {
 		t.Fatalf("fetch task before patch: %v", err)
 	}
 	if before.Recurrence == nil {
@@ -185,7 +183,7 @@ func TestV8RecurringInstancePeriodPatchPreservesAnchor(t *testing.T) {
 	beforeAnchor := before.Recurrence.Anchor
 
 	futurePeriod := daysFromToday(20)
-	patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"period":%q}`, futurePeriod))
+	patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"period":%q}`, futurePeriod))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +193,7 @@ func TestV8RecurringInstancePeriodPatchPreservesAnchor(t *testing.T) {
 	}
 
 	var after Task
-	if err := store.tasks.FindOne(ctx, bson.M{"_id": created.ID}).Decode(&after); err != nil {
+	if err := testDB(t, store).WithContext(ctx).Where("id = ?", created.ID).Take(&after).Error; err != nil {
 		t.Fatalf("fetch task after patch: %v", err)
 	}
 	if after.Period != futurePeriod {
@@ -259,7 +257,7 @@ func TestV8ParkPersonalTask(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		patchResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID.Hex(), parkBody)
+		patchResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID, parkBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -301,7 +299,7 @@ func TestV8ParkPersonalTask(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		patchResp, err := cUser.do("PATCH", "/api/tasks/"+created.ID.Hex(), parkBody)
+		patchResp, err := cUser.do("PATCH", "/api/tasks/"+created.ID, parkBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -362,7 +360,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 		Name: "V8 Park Team User", Email: "v8-park-team-user@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{team.ID},
+		TeamIDs:      []string{team.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -375,7 +373,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 	t.Run("ADMIN parks a team task into own backlog", func(t *testing.T) {
 		today := currentPeriod(HorizonDaily)
 		createResp, err := cAdmin.do("POST", "/api/tasks", fmt.Sprintf(
-			`{"title":"admin park team task","horizon":"daily","period":%q,"teamId":%q}`, today, team.ID.Hex()))
+			`{"title":"admin park team task","horizon":"daily","period":%q,"teamId":%q}`, today, team.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -385,7 +383,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		patchResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID.Hex(), parkBody)
+		patchResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID, parkBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -401,7 +399,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 			t.Fatalf("horizon/period after park = %q/%q, want backlog/empty", parked.Horizon, parked.Period)
 		}
 		if parked.OwnerID == nil || *parked.OwnerID != admin.ID {
-			t.Fatalf("ownerId after park = %v, want patching admin %s", parked.OwnerID, admin.ID.Hex())
+			t.Fatalf("ownerId after park = %v, want patching admin %s", parked.OwnerID, admin.ID)
 		}
 
 		backlogResp, err := cAdmin.do("GET", "/api/backlog", "")
@@ -426,7 +424,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 	t.Run("USER cannot park their own team's task", func(t *testing.T) {
 		today := currentPeriod(HorizonDaily)
 		createResp, err := cAdmin.do("POST", "/api/tasks", fmt.Sprintf(
-			`{"title":"user cannot park","horizon":"daily","period":%q,"teamId":%q}`, today, team.ID.Hex()))
+			`{"title":"user cannot park","horizon":"daily","period":%q,"teamId":%q}`, today, team.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -436,7 +434,7 @@ func TestV8ParkTeamTask(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		patchResp, err := cUser.do("PATCH", "/api/tasks/"+created.ID.Hex(), parkBody)
+		patchResp, err := cUser.do("PATCH", "/api/tasks/"+created.ID, parkBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -476,7 +474,7 @@ func TestV8UnparkRestoresWeekOf(t *testing.T) {
 	})
 	member := directMember(t, store, Member{
 		Name: "V8 Unpark Member", Email: "v8-unpark-member@example.com",
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -486,7 +484,7 @@ func TestV8UnparkRestoresWeekOf(t *testing.T) {
 	origPeriod := currentPeriod(HorizonDaily)
 	createResp, err := cAdmin.do("POST", "/api/tasks", fmt.Sprintf(
 		`{"title":"unpark roundtrip","horizon":%q,"period":%q,"teamId":%q,"assigneeId":%q}`,
-		origHorizon, origPeriod, team.ID.Hex(), member.ID.Hex()))
+		origHorizon, origPeriod, team.ID, member.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +499,7 @@ func TestV8UnparkRestoresWeekOf(t *testing.T) {
 	// below pass trivially regardless of whether the explicit patch or the
 	// flip stamp "won" — this ADMIN-only move makes them distinguishable).
 	const originalWeekOf = "2020-W05"
-	weekOfSetupResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"weekOf":%q}`, originalWeekOf))
+	weekOfSetupResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"weekOf":%q}`, originalWeekOf))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +514,7 @@ func TestV8UnparkRestoresWeekOf(t *testing.T) {
 
 	// Park: ADMIN single PATCH per docs/DESIGN_V8_ATTENTION_REASSIGN.md.
 	const parkBody = `{"teamId":null,"assigneeId":null,"horizon":"backlog","period":"","dueDate":""}`
-	parkResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID.Hex(), parkBody)
+	parkResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID, parkBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,8 +528,8 @@ func TestV8UnparkRestoresWeekOf(t *testing.T) {
 	// undo toast builds (docs/DESIGN_V8_ATTENTION_REASSIGN.md).
 	restoreBody := fmt.Sprintf(
 		`{"teamId":%q,"assigneeId":%q,"horizon":%q,"period":%q,"dueDate":"","weekOf":%q}`,
-		team.ID.Hex(), member.ID.Hex(), origHorizon, origPeriod, originalWeekOf)
-	restoreResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID.Hex(), restoreBody)
+		team.ID, member.ID, origHorizon, origPeriod, originalWeekOf)
+	restoreResp, err := cAdmin.do("PATCH", "/api/tasks/"+created.ID, restoreBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,11 +566,11 @@ func TestV8ReassignWithinTeam(t *testing.T) {
 		Name: "V8 Reassign Member A", Email: "v8-reassign-member-a@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{team.ID},
+		TeamIDs:      []string{team.ID},
 	})
 	memberB := directMember(t, store, Member{
 		Name: "V8 Reassign Member B", Email: "v8-reassign-member-b@example.com",
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 	outsider := directMember(t, store, Member{
 		Name: "V8 Reassign Outsider", Email: "v8-reassign-outsider@example.com",
@@ -586,7 +584,7 @@ func TestV8ReassignWithinTeam(t *testing.T) {
 	today := currentPeriod(HorizonDaily)
 	createResp, err := cAdmin.do("POST", "/api/tasks", fmt.Sprintf(
 		`{"title":"reassign me","horizon":"daily","period":%q,"teamId":%q,"assigneeId":%q}`,
-		today, team.ID.Hex(), memberA.ID.Hex()))
+		today, team.ID, memberA.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,7 +595,7 @@ func TestV8ReassignWithinTeam(t *testing.T) {
 	created := decodeJSON[TaskView](t, createResp.Body)
 
 	t.Run("USER member reassigns to another member of the same team: 200", func(t *testing.T) {
-		resp, err := cMemberA.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"assigneeId":%q}`, memberB.ID.Hex()))
+		resp, err := cMemberA.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"assigneeId":%q}`, memberB.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -607,12 +605,12 @@ func TestV8ReassignWithinTeam(t *testing.T) {
 		}
 		v := decodeJSON[TaskView](t, resp.Body)
 		if v.AssigneeID == nil || *v.AssigneeID != memberB.ID {
-			t.Fatalf("assigneeId = %v, want %s", v.AssigneeID, memberB.ID.Hex())
+			t.Fatalf("assigneeId = %v, want %s", v.AssigneeID, memberB.ID)
 		}
 	})
 
 	t.Run("USER member reassigns to a non-member: 400", func(t *testing.T) {
-		resp, err := cMemberA.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"assigneeId":%q}`, outsider.ID.Hex()))
+		resp, err := cMemberA.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"assigneeId":%q}`, outsider.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -680,7 +678,7 @@ func TestV8TeamlessUserScopedReads(t *testing.T) {
 		Overdue []TaskView `json:"overdue"`
 		Slipped []TaskView `json:"slipped"`
 	}
-	hasTask := func(views []TaskView, id bson.ObjectID) bool {
+	hasTask := func(views []TaskView, id string) bool {
 		for _, v := range views {
 			if v.ID == id {
 				return true

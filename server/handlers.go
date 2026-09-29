@@ -2,13 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type api struct {
@@ -79,28 +75,18 @@ func (a *api) routes() *http.ServeMux {
 
 // ---- helpers ----
 
-func pathID(r *http.Request) (bson.ObjectID, error) {
-	id, err := bson.ObjectIDFromHex(r.PathValue("id"))
-	if err != nil {
-		return bson.ObjectID{}, badRequest("invalid id")
-	}
-	return id, nil
+// pathID returns the {id} path segment. Ids are opaque strings end to end
+// (docs/DESIGN_PG_FSM_MIGRATION.md): there is no syntax to validate, so an
+// unknown id — garbage or not — is the repo's 404, not a handler 400. The
+// error return is kept so every handler's call shape stays unchanged.
+func pathID(r *http.Request) (string, error) {
+	return r.PathValue("id"), nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, err error) {
-	var ae *apiError
-	if errors.As(err, &ae) {
-		writeJSON(w, ae.status, map[string]string{"error": ae.msg})
-		return
-	}
-	log.Printf("internal error: %v", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 }
 
 // orEmpty turns a nil slice into an empty (but non-null) one for JSON output.
@@ -199,16 +185,7 @@ func (a *api) reschedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, badRequest("invalid JSON: %s", err.Error()))
 		return
 	}
-	ids := make([]bson.ObjectID, 0, len(body.IDs))
-	for _, s := range body.IDs {
-		oid, err := bson.ObjectIDFromHex(s)
-		if err != nil {
-			writeErr(w, badRequest("invalid id %q", s))
-			return
-		}
-		ids = append(ids, oid)
-	}
-	n, err := a.store.Reschedule(r.Context(), ids)
+	n, err := a.store.Reschedule(r.Context(), body.IDs)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -218,13 +195,10 @@ func (a *api) reschedule(w http.ResponseWriter, r *http.Request) {
 
 // ---- daily notes ----
 
-// pathNoteID is pathID's sibling for the {noteId} path segment.
-func pathNoteID(r *http.Request) (bson.ObjectID, error) {
-	id, err := bson.ObjectIDFromHex(r.PathValue("noteId"))
-	if err != nil {
-		return bson.ObjectID{}, badRequest("invalid note id")
-	}
-	return id, nil
+// pathNoteID is pathID's sibling for the {noteId} path segment (opaque,
+// like every id).
+func pathNoteID(r *http.Request) (string, error) {
+	return r.PathValue("noteId"), nil
 }
 
 func (a *api) addNote(w http.ResponseWriter, r *http.Request) {
@@ -294,20 +268,10 @@ func (a *api) summary(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	p := SummaryParams{From: q.Get("from"), To: q.Get("to")}
 	if v := q.Get("teamId"); v != "" {
-		oid, err := bson.ObjectIDFromHex(v)
-		if err != nil {
-			writeErr(w, badRequest("invalid teamId"))
-			return
-		}
-		p.TeamID = &oid
+		p.TeamID = &v
 	}
 	if v := q.Get("assigneeId"); v != "" {
-		oid, err := bson.ObjectIDFromHex(v)
-		if err != nil {
-			writeErr(w, badRequest("invalid assigneeId"))
-			return
-		}
-		p.AssigneeID = &oid
+		p.AssigneeID = &v
 	}
 	res, err := a.store.Summary(r.Context(), p)
 	if err != nil {
@@ -400,20 +364,10 @@ func (a *api) search(w http.ResponseWriter, r *http.Request) {
 		Overdue:  q.Get("overdue") == "true",
 	}
 	if v := q.Get("teamId"); v != "" {
-		oid, err := bson.ObjectIDFromHex(v)
-		if err != nil {
-			writeErr(w, badRequest("invalid teamId"))
-			return
-		}
-		p.TeamID = &oid
+		p.TeamID = &v
 	}
 	if v := q.Get("assigneeId"); v != "" {
-		oid, err := bson.ObjectIDFromHex(v)
-		if err != nil {
-			writeErr(w, badRequest("invalid assigneeId"))
-			return
-		}
-		p.AssigneeID = &oid
+		p.AssigneeID = &v
 	}
 	tasks, err := a.store.Search(r.Context(), p)
 	if err != nil {
@@ -578,14 +532,9 @@ func (a *api) createMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) listMembers(w http.ResponseWriter, r *http.Request) {
-	var teamID *bson.ObjectID
+	var teamID *string
 	if v := r.URL.Query().Get("teamId"); v != "" {
-		oid, err := bson.ObjectIDFromHex(v)
-		if err != nil {
-			writeErr(w, badRequest("invalid teamId"))
-			return
-		}
-		teamID = &oid
+		teamID = &v
 	}
 	members, err := a.store.ListMembers(r.Context(), teamID)
 	if err != nil {

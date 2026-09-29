@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"testing"
 	"time"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // TestBacklogCreateValidation covers docs/DESIGN_V7_BACKLOG.md's create-time
@@ -27,7 +25,7 @@ func TestBacklogCreateValidation(t *testing.T) {
 		// below: without it, CreateTask's own-team-membership gate would
 		// 403 before validateTaskFields ever runs the backlog invariant,
 		// masking the check this test wants to exercise.
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 	c := newJSONClient(srv)
 	loginAs(t, c, "backlog-user@example.com", "userpass1")
@@ -49,7 +47,7 @@ func TestBacklogCreateValidation(t *testing.T) {
 			t.Fatalf("period = %q, want empty", v.Period)
 		}
 		if v.OwnerID == nil || *v.OwnerID != user.ID {
-			t.Fatalf("ownerId = %v, want creator %s", v.OwnerID, user.ID.Hex())
+			t.Fatalf("ownerId = %v, want creator %s", v.OwnerID, user.ID)
 		}
 		if v.WeekOf != "" {
 			t.Fatalf("weekOf = %q, want empty on a backlog task", v.WeekOf)
@@ -90,7 +88,7 @@ func TestBacklogCreateValidation(t *testing.T) {
 	})
 
 	t.Run("teamId is 400", func(t *testing.T) {
-		resp, err := c.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"x","horizon":"backlog","period":"","teamId":%q}`, team.ID.Hex()))
+		resp, err := c.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"x","horizon":"backlog","period":"","teamId":%q}`, team.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +132,7 @@ func TestBacklogPatchValidation(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		resp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"horizon":"backlog","period":""}`)
+		resp, err := c.do("PATCH", "/api/tasks/"+created.ID, `{"horizon":"backlog","period":""}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +153,7 @@ func TestBacklogPatchValidation(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		resp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"dueDate":"2026-08-01"}`)
+		resp, err := c.do("PATCH", "/api/tasks/"+created.ID, `{"dueDate":"2026-08-01"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +177,7 @@ func TestBacklogPatchValidation(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 
-		resp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), fmt.Sprintf(`{"teamId":%q}`, team.ID.Hex()))
+		resp, err := c.do("PATCH", "/api/tasks/"+created.ID, fmt.Sprintf(`{"teamId":%q}`, team.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +298,7 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 	})
 	teamMember := directMember(t, store, Member{
 		Name: "Assign Member", Email: "assign-member@example.com",
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 	// Belongs to no team — used below to assert the assign PATCH still
 	// enforces assignee-belongs-to-team even through the backlog flip.
@@ -327,8 +325,8 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 	// through the backlog->team flip (docs/DESIGN_V7_BACKLOG.md's assignment
 	// PATCH is the existing personal->team flip, no new validation path).
 	badAssignBody := fmt.Sprintf(`{"teamId":%q,"horizon":"daily","period":%q,"assigneeId":%q}`,
-		team.ID.Hex(), today, outsider.ID.Hex())
-	badAssignResp, err := cAdminA.do("PATCH", "/api/tasks/"+created.ID.Hex(), badAssignBody)
+		team.ID, today, outsider.ID)
+	badAssignResp, err := cAdminA.do("PATCH", "/api/tasks/"+created.ID, badAssignBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,8 +336,8 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 	}
 
 	assignBody := fmt.Sprintf(`{"teamId":%q,"horizon":"daily","period":%q,"assigneeId":%q}`,
-		team.ID.Hex(), today, teamMember.ID.Hex())
-	assignResp, err := cAdminA.do("PATCH", "/api/tasks/"+created.ID.Hex(), assignBody)
+		team.ID, today, teamMember.ID)
+	assignResp, err := cAdminA.do("PATCH", "/api/tasks/"+created.ID, assignBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,14 +349,14 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 	if assigned.OwnerID != nil {
 		t.Fatalf("ownerId = %v after assignment, want nil", assigned.OwnerID)
 	}
-	if assigned.WeekOf != W {
+	if string(assigned.WeekOf) != W {
 		t.Fatalf("weekOf = %q after assignment, want current week %q", assigned.WeekOf, W)
 	}
 	if assigned.Horizon != HorizonDaily || assigned.Period != today {
 		t.Fatalf("horizon/period = %q/%q, want daily/%q", assigned.Horizon, assigned.Period, today)
 	}
 
-	boardResp, err := cAdminA.do("GET", "/api/teams/"+team.ID.Hex()+"/board", "")
+	boardResp, err := cAdminA.do("GET", "/api/teams/"+team.ID+"/board", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +378,7 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 	}
 
 	const undoBody = `{"teamId":null,"assigneeId":null,"horizon":"backlog","period":"","dueDate":""}`
-	undoResp, err := cAdminB.do("PATCH", "/api/tasks/"+created.ID.Hex(), undoBody)
+	undoResp, err := cAdminB.do("PATCH", "/api/tasks/"+created.ID, undoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +394,7 @@ func TestBacklogAssignmentFlipAndUndo(t *testing.T) {
 		t.Fatalf("teamId after undo = %v, want nil", undone.TeamID)
 	}
 	if undone.OwnerID == nil || *undone.OwnerID != adminB.ID {
-		t.Fatalf("ownerId after undo = %v, want patcher (adminB) %s", undone.OwnerID, adminB.ID.Hex())
+		t.Fatalf("ownerId after undo = %v, want patcher (adminB) %s", undone.OwnerID, adminB.ID)
 	}
 	if undone.OwnerID != nil && *undone.OwnerID == adminA.ID {
 		t.Fatalf("ownerId after undo reverted to the original creator, want the patcher")

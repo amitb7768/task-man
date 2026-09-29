@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"taskman/internal/model"
 )
 
 // ---- helpers ----
 
 // activityOf refetches a task's detail and returns its activity log.
-func activityOf(t *testing.T, c *jsonClient, taskID bson.ObjectID) []ActivityEntry {
+func activityOf(t *testing.T, c *jsonClient, taskID string) []ActivityEntry {
 	t.Helper()
-	resp, err := c.do("GET", "/api/tasks/"+taskID.Hex(), "")
+	resp, err := c.do("GET", "/api/tasks/"+taskID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestNoteAdd(t *testing.T) {
 		fmt.Sprintf(`{"title":"note target","horizon":"daily","period":%q}`, today), http.StatusCreated)
 	defer createResp.Body.Close()
 	task := decodeJSON[TaskView](t, createResp.Body)
-	notesPath := "/api/tasks/" + task.ID.Hex() + "/notes"
+	notesPath := "/api/tasks/" + task.ID + "/notes"
 
 	t.Run("defaults to today and denormalizes the author", func(t *testing.T) {
 		resp := mustStatus(t, c, "POST", notesPath, `{"text":"  wrote the doc  "}`, http.StatusCreated)
@@ -106,7 +106,7 @@ func TestNoteAdd(t *testing.T) {
 			t.Fatalf("date = %q, want today %q", e.Date, today)
 		}
 		if e.By == nil || *e.By != user.ID {
-			t.Fatalf("by = %v, want %s", e.By, user.ID.Hex())
+			t.Fatalf("by = %v, want %s", e.By, user.ID)
 		}
 		if e.ByName != "Note User" {
 			t.Fatalf("byName = %q, want %q", e.ByName, "Note User")
@@ -189,12 +189,12 @@ func TestNotePermissions(t *testing.T) {
 	directMember(t, store, Member{
 		Name: "Member A", Email: "note-a@example.com",
 		PasswordHash: mustHash(t, "userpass1"), SystemRole: RoleUser,
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 	directMember(t, store, Member{
 		Name: "Member B", Email: "note-b@example.com",
 		PasswordHash: mustHash(t, "userpass2"), SystemRole: RoleUser,
-		TeamIDs: []bson.ObjectID{team.ID},
+		TeamIDs: []string{team.ID},
 	})
 	directMember(t, store, Member{
 		Name: "Notes Admin", Email: "note-admin@example.com",
@@ -207,15 +207,15 @@ func TestNotePermissions(t *testing.T) {
 	loginAs(t, cAdmin, "note-admin@example.com", "adminpass1")
 
 	teamResp := mustStatus(t, cA, "POST", "/api/tasks", fmt.Sprintf(
-		`{"title":"shared task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID.Hex()), http.StatusCreated)
+		`{"title":"shared task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID), http.StatusCreated)
 	defer teamResp.Body.Close()
 	teamTask := decodeJSON[TaskView](t, teamResp.Body)
-	teamNotes := "/api/tasks/" + teamTask.ID.Hex() + "/notes"
+	teamNotes := "/api/tasks/" + teamTask.ID + "/notes"
 
 	addResp := mustStatus(t, cA, "POST", teamNotes, `{"text":"A's note"}`, http.StatusCreated)
 	defer addResp.Body.Close()
 	note := decodeJSON[ActivityEntry](t, addResp.Body)
-	notePath := teamNotes + "/" + note.ID.Hex()
+	notePath := teamNotes + "/" + note.ID
 
 	t.Run("teammate cannot edit or delete someone else's note", func(t *testing.T) {
 		mustStatus(t, cB, "PUT", notePath, `{"text":"hijacked"}`, http.StatusForbidden).Body.Close()
@@ -239,25 +239,28 @@ func TestNotePermissions(t *testing.T) {
 	})
 
 	t.Run("unknown note id is 404", func(t *testing.T) {
-		mustStatus(t, cA, "DELETE", teamNotes+"/"+bson.NewObjectID().Hex(), "", http.StatusNotFound).Body.Close()
-		mustStatus(t, cA, "DELETE", teamNotes+"/nonsense", "", http.StatusBadRequest).Body.Close()
+		mustStatus(t, cA, "DELETE", teamNotes+"/"+newID(), "", http.StatusNotFound).Body.Close()
+		// Ids are opaque strings since the Postgres move: a syntactically
+		// garbage note id is just another unknown id (was 400 under Mongo's
+		// ObjectID parsing — accepted API delta, wave 1.2).
+		mustStatus(t, cA, "DELETE", teamNotes+"/nonsense", "", http.StatusNotFound).Body.Close()
 	})
 
 	t.Run("status entries are not editable", func(t *testing.T) {
-		resp := mustStatus(t, cA, "PATCH", "/api/tasks/"+teamTask.ID.Hex(), `{"status":"in_progress"}`, http.StatusOK)
+		resp := mustStatus(t, cA, "PATCH", "/api/tasks/"+teamTask.ID, `{"status":"in_progress"}`, http.StatusOK)
 		defer resp.Body.Close()
 		v := decodeJSON[TaskView](t, resp.Body)
-		var statusID bson.ObjectID
+		var statusID string
 		for _, e := range v.Activity {
 			if e.Kind == ActivityStatus {
 				statusID = e.ID
 			}
 		}
-		if statusID.IsZero() {
+		if statusID == "" {
 			t.Fatalf("no status entry appended by PATCH; activity = %+v", v.Activity)
 		}
-		mustStatus(t, cA, "PUT", teamNotes+"/"+statusID.Hex(), `{"text":"nope"}`, http.StatusBadRequest).Body.Close()
-		mustStatus(t, cA, "DELETE", teamNotes+"/"+statusID.Hex(), "", http.StatusBadRequest).Body.Close()
+		mustStatus(t, cA, "PUT", teamNotes+"/"+statusID, `{"text":"nope"}`, http.StatusBadRequest).Body.Close()
+		mustStatus(t, cA, "DELETE", teamNotes+"/"+statusID, "", http.StatusBadRequest).Body.Close()
 	})
 
 	t.Run("ADMIN deletes any note", func(t *testing.T) {
@@ -276,7 +279,7 @@ func TestNotePermissions(t *testing.T) {
 			`{"title":"A's private task","horizon":"daily","period":"2026-07-09"}`, http.StatusCreated)
 		defer resp.Body.Close()
 		personal := decodeJSON[TaskView](t, resp.Body)
-		path := "/api/tasks/" + personal.ID.Hex() + "/notes"
+		path := "/api/tasks/" + personal.ID + "/notes"
 		mustStatus(t, cB, "POST", path, `{"text":"peeking"}`, http.StatusForbidden).Body.Close()
 		mustStatus(t, cAdmin, "POST", path, `{"text":"peeking"}`, http.StatusForbidden).Body.Close()
 
@@ -284,7 +287,7 @@ func TestNotePermissions(t *testing.T) {
 		// whole surface, so PUT/DELETE 403 before the note is even looked up.
 		own := mustStatus(t, cA, "POST", path, `{"text":"mine alone"}`, http.StatusCreated)
 		defer own.Body.Close()
-		ownPath := path + "/" + decodeJSON[ActivityEntry](t, own.Body).ID.Hex()
+		ownPath := path + "/" + decodeJSON[ActivityEntry](t, own.Body).ID
 		for _, other := range []*jsonClient{cB, cAdmin} {
 			mustStatus(t, other, "PUT", ownPath, `{"text":"hijacked"}`, http.StatusForbidden).Body.Close()
 			mustStatus(t, other, "DELETE", ownPath, "", http.StatusForbidden).Body.Close()
@@ -292,8 +295,8 @@ func TestNotePermissions(t *testing.T) {
 	})
 
 	t.Run("unknown task id is 404 on every note route", func(t *testing.T) {
-		gone := "/api/tasks/" + bson.NewObjectID().Hex() + "/notes"
-		noteID := "/" + bson.NewObjectID().Hex()
+		gone := "/api/tasks/" + newID() + "/notes"
+		noteID := "/" + newID()
 		mustStatus(t, cA, "POST", gone, `{"text":"x"}`, http.StatusNotFound).Body.Close()
 		mustStatus(t, cA, "PUT", gone+noteID, `{"text":"x"}`, http.StatusNotFound).Body.Close()
 		mustStatus(t, cA, "DELETE", gone+noteID, "", http.StatusNotFound).Body.Close()
@@ -302,7 +305,7 @@ func TestNotePermissions(t *testing.T) {
 	// All four v9 routes sit behind requireAuth.
 	t.Run("no session is 401", func(t *testing.T) {
 		anon := newJSONClient(srv)
-		notePath := teamNotes + "/" + note.ID.Hex()
+		notePath := teamNotes + "/" + note.ID
 		mustStatus(t, anon, "POST", teamNotes, `{"text":"x"}`, http.StatusUnauthorized).Body.Close()
 		mustStatus(t, anon, "PUT", notePath, `{"text":"x"}`, http.StatusUnauthorized).Body.Close()
 		mustStatus(t, anon, "DELETE", notePath, "", http.StatusUnauthorized).Body.Close()
@@ -333,7 +336,7 @@ func TestPatchActivityIsSystemManaged(t *testing.T) {
 	if len(task.Activity) != 0 {
 		t.Fatalf("CreateTask seeded activity: %+v", task.Activity)
 	}
-	path := "/api/tasks/" + task.ID.Hex()
+	path := "/api/tasks/" + task.ID
 
 	t.Run("status change appends a status entry", func(t *testing.T) {
 		resp := mustStatus(t, c, "PATCH", path, `{"status":"in_progress"}`, http.StatusOK)
@@ -412,12 +415,12 @@ func TestActivityRestoreRoundTrip(t *testing.T) {
 	defer createResp.Body.Close()
 	task := decodeJSON[TaskView](t, createResp.Body)
 
-	addResp := mustStatus(t, c, "POST", "/api/tasks/"+task.ID.Hex()+"/notes",
+	addResp := mustStatus(t, c, "POST", "/api/tasks/"+task.ID+"/notes",
 		`{"text":"survives a delete","date":"2026-07-09"}`, http.StatusCreated)
 	defer addResp.Body.Close()
 	note := decodeJSON[ActivityEntry](t, addResp.Body)
 
-	delResp := mustStatus(t, c, "DELETE", "/api/tasks/"+task.ID.Hex(), "", http.StatusOK)
+	delResp := mustStatus(t, c, "DELETE", "/api/tasks/"+task.ID, "", http.StatusOK)
 	defer delResp.Body.Close()
 	deleted := decodeJSON[struct {
 		Deleted []TaskView `json:"deleted"`
@@ -462,11 +465,11 @@ func TestSummaryClassification(t *testing.T) {
 	before := time.Date(2026, 4, 1, 9, 0, 0, 0, time.Local)
 	owner := user.ID
 	note := func(date, text string, at time.Time) ActivityEntry {
-		return ActivityEntry{ID: bson.NewObjectID(), Kind: ActivityNote, Date: date, At: at,
+		return ActivityEntry{ID: newID(), Kind: ActivityNote, Date: date, At: at,
 			By: &owner, ByName: user.Name, Text: text}
 	}
 	statusEntry := func(date, fromStatus, toStatus string, at time.Time) ActivityEntry {
-		return ActivityEntry{ID: bson.NewObjectID(), Kind: ActivityStatus, Date: date, At: at,
+		return ActivityEntry{ID: newID(), Kind: ActivityStatus, Date: date, At: at,
 			By: &owner, ByName: user.Name, From: fromStatus, To: toStatus}
 	}
 	doneAt := day(6, 10)
@@ -586,7 +589,7 @@ func TestSummaryClassification(t *testing.T) {
 		// One comment today bumps updatedAt to today. The fallback must NOT
 		// re-read that as "cancelled today" and drop the task into this week's
 		// Completed — it belongs in Updated.
-		mustStatus(t, c, "POST", "/api/tasks/"+legacy.ID.Hex()+"/notes",
+		mustStatus(t, c, "POST", "/api/tasks/"+legacy.ID+"/notes",
 			`{"text":"still relevant"}`, http.StatusCreated).Body.Close()
 
 		today := currentPeriod(HorizonDaily)
@@ -610,9 +613,9 @@ func TestSummaryClassification(t *testing.T) {
 		today := currentPeriod(HorizonDaily)
 		dateIn := func(days int) string { return now.AddDate(0, 0, days).Format("2006-01-02") }
 		directTask(t, store, Task{Title: "due later", Horizon: HorizonDaily, Period: today,
-			Status: StatusTodo, DueDate: dateIn(5), OwnerID: &owner, CreatedAt: now, UpdatedAt: now})
+			Status: StatusTodo, DueDate: model.NullStr(dateIn(5)), OwnerID: &owner, CreatedAt: now, UpdatedAt: now})
 		directTask(t, store, Task{Title: "due already", Horizon: HorizonDaily, Period: today,
-			Status: StatusTodo, DueDate: dateIn(-3), OwnerID: &owner, CreatedAt: now, UpdatedAt: now})
+			Status: StatusTodo, DueDate: model.NullStr(dateIn(-3)), OwnerID: &owner, CreatedAt: now, UpdatedAt: now})
 
 		res := summarize(t, today, dateIn(10))
 		later, already := rowOf(res.Added, "due later"), rowOf(res.Added, "due already")
@@ -641,12 +644,12 @@ func TestSummaryScope(t *testing.T) {
 	memberA := directMember(t, store, Member{
 		Name: "Scope A", Email: "scope-a@example.com",
 		PasswordHash: mustHash(t, "userpass1"), SystemRole: RoleUser,
-		TeamIDs: []bson.ObjectID{teamX.ID},
+		TeamIDs: []string{teamX.ID},
 	})
 	memberB := directMember(t, store, Member{
 		Name: "Scope B", Email: "scope-b@example.com",
 		PasswordHash: mustHash(t, "userpass2"), SystemRole: RoleUser,
-		TeamIDs: []bson.ObjectID{teamX.ID},
+		TeamIDs: []string{teamX.ID},
 	})
 
 	const from, to = "2026-05-04", "2026-05-10"
@@ -670,7 +673,7 @@ func TestSummaryScope(t *testing.T) {
 	}
 
 	t.Run("team scope covers the whole team", func(t *testing.T) {
-		res := get(t, base+"&teamId="+teamX.ID.Hex())
+		res := get(t, base+"&teamId="+teamX.ID)
 		if got := titlesOf(res.Added); !sameTitles(got, "team task for a", "team task for b") {
 			t.Fatalf("added = %v", got)
 		}
@@ -686,7 +689,7 @@ func TestSummaryScope(t *testing.T) {
 	})
 
 	t.Run("assignee filter narrows the team", func(t *testing.T) {
-		res := get(t, base+"&teamId="+teamX.ID.Hex()+"&assigneeId="+memberA.ID.Hex())
+		res := get(t, base+"&teamId="+teamX.ID+"&assigneeId="+memberA.ID)
 		if got := titlesOf(res.Added); !sameTitles(got, "team task for a") {
 			t.Fatalf("added = %v", got)
 		}
@@ -696,7 +699,7 @@ func TestSummaryScope(t *testing.T) {
 	})
 
 	t.Run("USER on a foreign team is 403", func(t *testing.T) {
-		mustStatus(t, c, "GET", base+"&teamId="+teamY.ID.Hex(), "", http.StatusForbidden).Body.Close()
+		mustStatus(t, c, "GET", base+"&teamId="+teamY.ID, "", http.StatusForbidden).Body.Close()
 	})
 
 	// Me-scope: own personal plus team tasks assigned to me — never a
@@ -716,7 +719,7 @@ func TestSummaryScope(t *testing.T) {
 	})
 
 	t.Run("assigneeId without teamId is 400", func(t *testing.T) {
-		mustStatus(t, c, "GET", base+"&assigneeId="+memberA.ID.Hex(), "", http.StatusBadRequest).Body.Close()
+		mustStatus(t, c, "GET", base+"&assigneeId="+memberA.ID, "", http.StatusBadRequest).Body.Close()
 	})
 
 	t.Run("missing range is 400", func(t *testing.T) {
@@ -787,7 +790,7 @@ func TestPatchNoteRace(t *testing.T) {
 		`{"title":"patch vs note","horizon":"daily","period":"2026-07-09"}`, http.StatusCreated)
 	defer createResp.Body.Close()
 	task := decodeJSON[TaskView](t, createResp.Body)
-	taskPath := "/api/tasks/" + task.ID.Hex()
+	taskPath := "/api/tasks/" + task.ID
 	notesPath := taskPath + "/notes"
 
 	const rounds = 20

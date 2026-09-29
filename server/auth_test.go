@@ -7,17 +7,21 @@ import (
 	"net/http"
 	"testing"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"golang.org/x/crypto/bcrypt"
+
+	"taskman/internal/model"
 )
 
 // mustHash is a test-only helper: bcrypt-hash a password or fail the test.
-func mustHash(t *testing.T, pw string) string {
+// Hashing moved into internal/repo (unexported), so this calls bcrypt at
+// the repo's cost directly; the result is the Member.PasswordHash type.
+func mustHash(t *testing.T, pw string) model.NullStr {
 	t.Helper()
-	h, err := hashPassword(pw)
+	h, err := bcrypt.GenerateFromPassword([]byte(pw), 10)
 	if err != nil {
 		t.Fatalf("hashPassword: %v", err)
 	}
-	return h
+	return model.NullStr(h)
 }
 
 func decodeJSON[T any](t *testing.T, r io.Reader) T {
@@ -110,8 +114,8 @@ func TestAuthFlow(t *testing.T) {
 		body := decodeJSON[struct {
 			User MeUser `json:"user"`
 		}](t, resp.Body)
-		if body.User.ID != admin.ID.Hex() {
-			t.Fatalf("me id = %q, want %q", body.User.ID, admin.ID.Hex())
+		if body.User.ID != admin.ID {
+			t.Fatalf("me id = %q, want %q", body.User.ID, admin.ID)
 		}
 	})
 
@@ -284,7 +288,7 @@ func TestGatingMatrixSpotChecks(t *testing.T) {
 		Name: "User One", Email: "user1@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{teamA.ID},
+		TeamIDs:      []string{teamA.ID},
 	})
 	user2 := directMember(t, store, Member{
 		Name: "User Two", Email: "user2@example.com",
@@ -322,11 +326,11 @@ func TestGatingMatrixSpotChecks(t *testing.T) {
 		}
 		created := decodeJSON[TaskView](t, createResp.Body)
 		if created.OwnerID == nil || *created.OwnerID != user2.ID {
-			t.Fatalf("ownerId = %v, want %s", created.OwnerID, user2.ID.Hex())
+			t.Fatalf("ownerId = %v, want %s", created.OwnerID, user2.ID)
 		}
 
 		// user1 tries to patch it.
-		patchResp, err := c1.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"title":"hijacked"}`)
+		patchResp, err := c1.do("PATCH", "/api/tasks/"+created.ID, `{"title":"hijacked"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,7 +341,7 @@ func TestGatingMatrixSpotChecks(t *testing.T) {
 	})
 
 	t.Run("USER cannot read another team's board", func(t *testing.T) {
-		resp, err := c1.do("GET", fmt.Sprintf("/api/teams/%s/board", teamB.ID.Hex()), "")
+		resp, err := c1.do("GET", fmt.Sprintf("/api/teams/%s/board", teamB.ID), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +352,7 @@ func TestGatingMatrixSpotChecks(t *testing.T) {
 	})
 
 	t.Run("USER can read own team's board", func(t *testing.T) {
-		resp, err := c1.do("GET", fmt.Sprintf("/api/teams/%s/board", teamA.ID.Hex()), "")
+		resp, err := c1.do("GET", fmt.Sprintf("/api/teams/%s/board", teamA.ID), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -396,7 +400,7 @@ func TestChildAccessFiltering(t *testing.T) {
 		Name: "User One", Email: "cf-user1@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{teamA.ID},
+		TeamIDs:      []string{teamA.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -405,7 +409,7 @@ func TestChildAccessFiltering(t *testing.T) {
 	loginAs(t, c1, "cf-user1@example.com", "userpass1")
 
 	// user1 creates a team task in their own team — legitimate.
-	teamTaskResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, teamA.ID.Hex()))
+	teamTaskResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, teamA.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +422,7 @@ func TestChildAccessFiltering(t *testing.T) {
 
 	// user1 parents a PERSONAL task under it — allowed, since user1 can
 	// access the parent (own team). The child stays theirs alone.
-	childResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"user1 private child","horizon":"daily","period":"2026-07-09","parentId":%q}`, teamTask.ID.Hex()))
+	childResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"user1 private child","horizon":"daily","period":"2026-07-09","parentId":%q}`, teamTask.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +433,7 @@ func TestChildAccessFiltering(t *testing.T) {
 	}
 
 	t.Run("admin GET of the team task omits the foreign personal child", func(t *testing.T) {
-		resp, err := cAdmin.do("GET", "/api/tasks/"+teamTask.ID.Hex(), "")
+		resp, err := cAdmin.do("GET", "/api/tasks/"+teamTask.ID, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -446,7 +450,7 @@ func TestChildAccessFiltering(t *testing.T) {
 	})
 
 	t.Run("owner's own GET still includes their own child", func(t *testing.T) {
-		resp, err := c1.do("GET", "/api/tasks/"+teamTask.ID.Hex(), "")
+		resp, err := c1.do("GET", "/api/tasks/"+teamTask.ID, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -499,7 +503,7 @@ func TestParentIDInjectionBlocked(t *testing.T) {
 	defer privResp.Body.Close()
 	priv := decodeJSON[TaskView](t, privResp.Body)
 
-	resp, err := c2.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"injected child","horizon":"daily","period":"2026-07-09","parentId":%q}`, priv.ID.Hex()))
+	resp, err := c2.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"injected child","horizon":"daily","period":"2026-07-09","parentId":%q}`, priv.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,20 +528,20 @@ func TestUserCannotChangeTaskTeamBoundary(t *testing.T) {
 		Name: "Bound User", Email: "bound1@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{teamA.ID},
+		TeamIDs:      []string{teamA.ID},
 	})
 
 	c1 := newJSONClient(srv)
 	loginAs(t, c1, "bound1@example.com", "userpass1")
 
-	createResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, teamA.ID.Hex()))
+	createResp, err := c1.do("POST", "/api/tasks", fmt.Sprintf(`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, teamA.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer createResp.Body.Close()
 	created := decodeJSON[TaskView](t, createResp.Body)
 
-	resp, err := c1.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"teamId":null}`)
+	resp, err := c1.do("PATCH", "/api/tasks/"+created.ID, `{"teamId":null}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +578,7 @@ func TestDeleteMemberLoginEnabledConflict(t *testing.T) {
 	loginAs(t, cAdmin, "delAdmin@example.com", "adminpass1")
 
 	t.Run("login-enabled member delete is 409", func(t *testing.T) {
-		resp, err := cAdmin.do("DELETE", "/api/members/"+loginMember.ID.Hex(), "")
+		resp, err := cAdmin.do("DELETE", "/api/members/"+loginMember.ID, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -586,7 +590,7 @@ func TestDeleteMemberLoginEnabledConflict(t *testing.T) {
 	})
 
 	t.Run("assignable-only member delete still succeeds", func(t *testing.T) {
-		resp, err := cAdmin.do("DELETE", "/api/members/"+assignableOnly.ID.Hex(), "")
+		resp, err := cAdmin.do("DELETE", "/api/members/"+assignableOnly.ID, "")
 		if err != nil {
 			t.Fatal(err)
 		}

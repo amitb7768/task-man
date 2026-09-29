@@ -1,56 +1,121 @@
 package main
 
 import (
-	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"gorm.io/gorm"
+
+	"taskman/internal/model"
+	"taskman/internal/repo"
 )
 
-// testMongoURI points at the same local Mongo instance the dev server uses
-// (docker-compose's taskman-mongo-1). Tests never touch the "taskman"
-// database itself — see newTestAPI, which mints a disposable per-test
-// database name and drops it on cleanup (docs/DESIGN.md: "no mocks-for-
-// mongo"; the AUTH_FEATURES build instructions call for a separate database
-// name for any destructive test flow).
-func testMongoURI() string {
-	if v := os.Getenv("MONGO_URI"); v != "" {
-		return v
+// The server suite runs against a real, disposable Postgres
+// (TASKMAN_TEST_PG_DSN — e.g. docker-compose's postgres service at
+// postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable).
+// Every test gets its own freshly-migrated scratch schema, dropped (CASCADE)
+// on cleanup — the same isolation the Mongo suite had with a scratch DB per
+// test. The scratch-schema helpers below replicate internal/repo's
+// testutil_test.go/migrate_test.go (package-private test helpers can't be
+// imported across packages).
+
+// testDSN returns TASKMAN_TEST_PG_DSN, skipping the test when it's unset.
+func testDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("TASKMAN_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TASKMAN_TEST_PG_DSN not set; skipping Postgres-backed test")
 	}
-	return "mongodb://localhost:27017"
+	return dsn
 }
 
-var testDBCounter int64
-
-// newTestStore connects to a fresh, uniquely-named scratch database,
-// ensures indexes, and registers a drop+disconnect cleanup.
-func newTestStore(t *testing.T) *Store {
+// scopedDSN returns dsn with its search_path set to schema, so every
+// statement over the resulting connection (migrations included) resolves
+// against that schema alone.
+func scopedDSN(t *testing.T, dsn, schema string) string {
 	t.Helper()
-	n := atomic.AddInt64(&testDBCounter, 1)
-	dbName := fmt.Sprintf("taskman_test_%d_%d", time.Now().UnixNano(), n)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	store, err := NewStore(ctx, testMongoURI(), dbName)
+	u, err := url.Parse(dsn)
 	if err != nil {
-		t.Fatalf("connect test mongo (is taskman-mongo-1 running on %s?): %v", testMongoURI(), err)
+		t.Fatalf("scopedDSN: parse %q: %v", dsn, err)
 	}
-	if err := store.EnsureIndexes(ctx); err != nil {
-		t.Fatalf("ensure indexes: %v", err)
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+var testSchemaCounter int64
+
+// withScratchSchema creates a uniquely-named schema on dsn's database and
+// drops it (CASCADE) on cleanup regardless of outcome.
+func withScratchSchema(t *testing.T, dsn, tag string) string {
+	t.Helper()
+	admin, err := sql.Open("pgx/v5", dsn)
+	if err != nil {
+		t.Fatalf("withScratchSchema: open admin conn: %v", err)
+	}
+	t.Cleanup(func() { admin.Close() })
+
+	n := atomic.AddInt64(&testSchemaCounter, 1)
+	schema := fmt.Sprintf("taskman_test_%s_%d_%d", tag, time.Now().UnixNano(), n)
+	if _, err := admin.Exec(fmt.Sprintf(`CREATE SCHEMA %q`, schema)); err != nil {
+		t.Fatalf("withScratchSchema: create schema %s: %v", schema, err)
 	}
 	t.Cleanup(func() {
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer dropCancel()
-		_ = store.db.Drop(dropCtx)
-		_ = store.Close(dropCtx)
+		if _, err := admin.Exec(fmt.Sprintf(`DROP SCHEMA IF EXISTS %q CASCADE`, schema)); err != nil {
+			t.Errorf("withScratchSchema: drop schema %s: %v", schema, err)
+		}
+	})
+	return schema
+}
+
+// testDBs maps each test store to its gorm handle, so the direct* fixture
+// helpers (and the few tests that poke rows directly) can reach the scratch
+// schema without the repo exporting its db field.
+var testDBs sync.Map // *Store -> *gorm.DB
+
+func testDB(t *testing.T, store *Store) *gorm.DB {
+	t.Helper()
+	v, ok := testDBs.Load(store)
+	if !ok {
+		t.Fatalf("testDB: store was not created by newTestStore")
+	}
+	return v.(*gorm.DB)
+}
+
+// newTestStore migrates a fresh scratch schema and returns a Store bound
+// to it; the pool is closed and the schema dropped on cleanup.
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+	base := testDSN(t)
+	schema := withScratchSchema(t, base, "server")
+	dsn := scopedDSN(t, base, schema)
+	if err := repo.Migrate(dsn); err != nil {
+		t.Fatalf("newTestStore: Migrate: %v", err)
+	}
+	db, err := repo.Open(dsn)
+	if err != nil {
+		t.Fatalf("newTestStore: Open: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("newTestStore: db.DB(): %v", err)
+	}
+	store := repo.New(db)
+	testDBs.Store(store, db)
+	t.Cleanup(func() {
+		testDBs.Delete(store)
+		sqlDB.Close()
 	})
 	return store
 }
@@ -95,46 +160,53 @@ func (j *jsonClient) do(method, path, body string) (*http.Response, error) {
 	return j.c.Do(req)
 }
 
-// directMember inserts a member document straight into Mongo (bypassing
-// HTTP/admin gating) so tests can seed fixtures without depending on the
-// endpoints under test.
+// newID mints a fresh opaque id for a directly-seeded fixture row.
+func newID() string { return repo.NewID() }
+
+// directMember inserts a member row (plus its member_teams rows, in
+// TeamIDs order) straight into the scratch schema, bypassing HTTP/admin
+// gating, so tests can seed fixtures without depending on the endpoints
+// under test.
 func directMember(t *testing.T, store *Store, m Member) Member {
 	t.Helper()
-	if m.ID.IsZero() {
-		m.ID = bson.NewObjectID()
+	if m.ID == "" {
+		m.ID = newID()
 	}
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := store.members.InsertOne(ctx, m); err != nil {
+	db := testDB(t, store)
+	if err := db.Create(&m).Error; err != nil {
 		t.Fatalf("seed member: %v", err)
+	}
+	for i, tid := range m.TeamIDs {
+		if err := db.Exec(`INSERT INTO member_teams (member_id, team_id, pos) VALUES (?, ?, ?)`, m.ID, tid, i).Error; err != nil {
+			t.Fatalf("seed member_teams: %v", err)
+		}
 	}
 	return m
 }
 
 func directTeam(t *testing.T, store *Store, name string) Team {
 	t.Helper()
-	team := Team{ID: bson.NewObjectID(), Name: name, CreatedAt: time.Now()}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := store.teams.InsertOne(ctx, team); err != nil {
+	team := Team{ID: newID(), Name: name, CreatedAt: time.Now()}
+	if err := testDB(t, store).Create(&team).Error; err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
 	return team
 }
 
-// directTask inserts a task document straight into Mongo, bypassing
+// directTask inserts a task row straight into the scratch schema, bypassing
 // CreateTask's system-managed-field derivation (ownerId/weekOf/timestamps),
 // so tests can seed fixtures with exactly the field values they need — e.g.
-// weekof_test.go's backfill tests need team tasks with weekOf missing
-// entirely, and its board/rollover/history tests need specific weekOf/
+// weekof_test.go's board/rollover/history tests need specific weekOf/
 // createdAt/status combinations CreateTask would never produce directly.
+// Task.Activity is not a column; any entries are written to task_activity
+// in slice order.
 func directTask(t *testing.T, store *Store, task Task) Task {
 	t.Helper()
-	if task.ID.IsZero() {
-		task.ID = bson.NewObjectID()
+	if task.ID == "" {
+		task.ID = newID()
 	}
 	if task.Status == "" {
 		task.Status = StatusTodo
@@ -145,10 +217,26 @@ func directTask(t *testing.T, store *Store, task Task) Task {
 	if task.UpdatedAt.IsZero() {
 		task.UpdatedAt = task.CreatedAt
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := store.tasks.InsertOne(ctx, task); err != nil {
+	db := testDB(t, store)
+	if err := db.Create(&task).Error; err != nil {
 		t.Fatalf("seed task: %v", err)
+	}
+	for i := range task.Activity {
+		e := task.Activity[i]
+		if e.ID == "" {
+			e.ID = newID()
+		}
+		e.TaskID = task.ID
+		if err := db.Create(&e).Error; err != nil {
+			t.Fatalf("seed task activity: %v", err)
+		}
 	}
 	return task
 }
+
+// Test-only stand-ins for names the server no longer defines (the
+// period.go shim is gone; the note cap is unexported in internal/repo).
+const dateLayout = model.DateLayout
+
+// maxNoteLen mirrors internal/repo's (unexported) note-text rune cap.
+const maxNoteLen = 4000

@@ -3,72 +3,11 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"taskman/internal/repo"
 )
-
-func oidPtr(id bson.ObjectID) *bson.ObjectID { return &id }
-
-func TestGenerateTempPassword(t *testing.T) {
-	seen := map[string]bool{}
-	for i := 0; i < 50; i++ {
-		pw, err := generateTempPassword()
-		if err != nil {
-			t.Fatalf("generateTempPassword: %v", err)
-		}
-		if len(pw) != 12 {
-			t.Fatalf("length = %d, want 12 (pw=%q)", len(pw), pw)
-		}
-		for _, r := range pw {
-			if !strings.ContainsRune(tempPasswordChars, r) {
-				t.Fatalf("char %q not in allowed charset", r)
-			}
-		}
-		seen[pw] = true
-	}
-	if len(seen) < 45 { // extremely unlikely to collide this much by chance
-		t.Fatalf("generated passwords look non-random: only %d unique of 50", len(seen))
-	}
-}
-
-func TestGenerateSessionToken(t *testing.T) {
-	tok, err := generateSessionToken()
-	if err != nil {
-		t.Fatalf("generateSessionToken: %v", err)
-	}
-	if len(tok) != 64 { // 32 bytes hex-encoded
-		t.Fatalf("length = %d, want 64", len(tok))
-	}
-	tok2, err := generateSessionToken()
-	if err != nil {
-		t.Fatalf("generateSessionToken: %v", err)
-	}
-	if tok == tok2 {
-		t.Fatalf("two calls produced the same token")
-	}
-}
-
-func TestHashAndCheckPassword(t *testing.T) {
-	hash, err := hashPassword("correct horse battery staple")
-	if err != nil {
-		t.Fatalf("hashPassword: %v", err)
-	}
-	if hash == "" || hash == "correct horse battery staple" {
-		t.Fatalf("hash looks unhashed: %q", hash)
-	}
-	if !checkPassword(hash, "correct horse battery staple") {
-		t.Fatalf("checkPassword: correct password rejected")
-	}
-	if checkPassword(hash, "wrong password") {
-		t.Fatalf("checkPassword: wrong password accepted")
-	}
-	if checkPassword("", "anything") {
-		t.Fatalf("checkPassword: empty hash accepted a password")
-	}
-}
 
 func TestBackoffDelay(t *testing.T) {
 	cases := []struct {
@@ -130,7 +69,7 @@ func TestClientIP(t *testing.T) {
 
 func TestSessionCookieRoundTrip(t *testing.T) {
 	rec := httptest.NewRecorder()
-	expiry := time.Now().Add(sessionTTL).Truncate(time.Second)
+	expiry := time.Now().Add(repo.SessionTTL).Truncate(time.Second)
 	setSessionCookie(rec, "abc123", expiry)
 
 	resp := rec.Result()
@@ -173,40 +112,5 @@ func TestSessionCookieRoundTrip(t *testing.T) {
 	}
 	if cleared.MaxAge >= 0 {
 		t.Errorf("clearSessionCookie MaxAge = %d, want negative (delete)", cleared.MaxAge)
-	}
-}
-
-func TestCanAccessTask(t *testing.T) {
-	admin := &ctxUser{ID: bson.NewObjectID(), SystemRole: RoleAdmin}
-	user := &ctxUser{ID: bson.NewObjectID(), SystemRole: RoleUser}
-	otherUser := &ctxUser{ID: bson.NewObjectID(), SystemRole: RoleUser}
-	teamA := bson.NewObjectID()
-	teamB := bson.NewObjectID()
-	user.TeamIDs = []bson.ObjectID{teamA}
-
-	personalOwnedByUser := &Task{OwnerID: oidPtr(user.ID)}
-	personalOwnedByOther := &Task{OwnerID: oidPtr(otherUser.ID)}
-	teamATask := &Task{TeamID: oidPtr(teamA)}
-	teamBTask := &Task{TeamID: oidPtr(teamB)}
-
-	cases := []struct {
-		name string
-		u    *ctxUser
-		t    *Task
-		want bool
-	}{
-		{"admin cannot see another user's personal task", admin, personalOwnedByUser, false},
-		{"admin can see any team task", admin, teamBTask, true},
-		{"owner can see own personal task", user, personalOwnedByUser, true},
-		{"user cannot see another's personal task", user, personalOwnedByOther, false},
-		{"user can see own team's task", user, teamATask, true},
-		{"user cannot see other team's task", user, teamBTask, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := canAccessTask(c.u, c.t); got != c.want {
-				t.Errorf("canAccessTask() = %v, want %v", got, c.want)
-			}
-		})
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"taskman/internal/model"
 )
 
 // TestWeekOfOnCreate covers docs/DESIGN_V6_WEEK_ROLLOVER.md's create rule:
@@ -30,7 +30,7 @@ func TestWeekOfOnCreate(t *testing.T) {
 
 	t.Run("team task gets current week", func(t *testing.T) {
 		resp, err := c.do("POST", "/api/tasks", fmt.Sprintf(
-			`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID.Hex()))
+			`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +39,7 @@ func TestWeekOfOnCreate(t *testing.T) {
 			t.Fatalf("status = %d, want 201", resp.StatusCode)
 		}
 		v := decodeJSON[TaskView](t, resp.Body)
-		if v.WeekOf != W {
+		if string(v.WeekOf) != W {
 			t.Fatalf("weekOf = %q, want %q", v.WeekOf, W)
 		}
 	})
@@ -79,7 +79,7 @@ func TestTerminalTransitionBumpsWeekOf(t *testing.T) {
 	loginAs(t, c, "terminal-admin@example.com", "adminpass1")
 
 	createResp, err := c.do("POST", "/api/tasks", fmt.Sprintf(
-		`{"title":"terminal transition","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID.Hex()))
+		`{"title":"terminal transition","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +91,11 @@ func TestTerminalTransitionBumpsWeekOf(t *testing.T) {
 	// Simulate a task that has sat stale since an old week.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := store.tasks.UpdateOne(ctx, bson.M{"_id": created.ID}, bson.M{"$set": bson.M{"weekOf": "2020-W01"}}); err != nil {
+	if err := testDB(t, store).WithContext(ctx).Exec(`UPDATE tasks SET week_of = ? WHERE id = ?`, "2020-W01", created.ID).Error; err != nil {
 		t.Fatalf("seed old weekOf: %v", err)
 	}
 
-	patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"status":"done"}`)
+	patchResp, err := c.do("PATCH", "/api/tasks/"+created.ID, `{"status":"done"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,26 +104,24 @@ func TestTerminalTransitionBumpsWeekOf(t *testing.T) {
 		t.Fatalf("status = %d, want 200", patchResp.StatusCode)
 	}
 	patched := decodeJSON[TaskView](t, patchResp.Body)
-	if patched.WeekOf != W {
+	if string(patched.WeekOf) != W {
 		t.Fatalf("weekOf after terminal transition = %q, want current week %q", patched.WeekOf, W)
 	}
 
 	// Cancelling from a still-stale weekOf must bump it too (terminal =
 	// done OR cancelled), even though cancelled never sets completedAt.
-	if _, err := store.tasks.UpdateOne(ctx, bson.M{"_id": created.ID},
-		bson.M{
-			"$set":   bson.M{"status": StatusTodo, "weekOf": "2020-W02"},
-			"$unset": bson.M{"completedAt": ""},
-		}); err != nil {
+	if err := testDB(t, store).WithContext(ctx).Exec(
+		`UPDATE tasks SET status = ?, week_of = ?, completed_at = NULL WHERE id = ?`,
+		StatusTodo, "2020-W02", created.ID).Error; err != nil {
 		t.Fatalf("reset to stale open: %v", err)
 	}
-	cancelResp, err := c.do("PATCH", "/api/tasks/"+created.ID.Hex(), `{"status":"cancelled"}`)
+	cancelResp, err := c.do("PATCH", "/api/tasks/"+created.ID, `{"status":"cancelled"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cancelResp.Body.Close()
 	cancelled := decodeJSON[TaskView](t, cancelResp.Body)
-	if cancelled.WeekOf != W {
+	if string(cancelled.WeekOf) != W {
 		t.Fatalf("weekOf after cancel transition = %q, want current week %q", cancelled.WeekOf, W)
 	}
 	if cancelled.CompletedAt != nil {
@@ -149,7 +147,7 @@ func TestPatchWeekOf(t *testing.T) {
 		Name: "Patch User", Email: "patch-user@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{team.ID},
+		TeamIDs:      []string{team.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -158,7 +156,7 @@ func TestPatchWeekOf(t *testing.T) {
 	loginAs(t, cUser, "patch-user@example.com", "userpass1")
 
 	teamTaskResp, err := cAdmin.do("POST", "/api/tasks", fmt.Sprintf(
-		`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID.Hex()))
+		`{"title":"team task","horizon":"daily","period":"2026-07-09","teamId":%q}`, team.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +173,7 @@ func TestPatchWeekOf(t *testing.T) {
 	target := "2025-W05"
 
 	t.Run("ADMIN can move weekOf on a team task", func(t *testing.T) {
-		resp, err := cAdmin.do("PATCH", "/api/tasks/"+teamTask.ID.Hex(), fmt.Sprintf(`{"weekOf":%q}`, target))
+		resp, err := cAdmin.do("PATCH", "/api/tasks/"+teamTask.ID, fmt.Sprintf(`{"weekOf":%q}`, target))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,13 +182,13 @@ func TestPatchWeekOf(t *testing.T) {
 			t.Fatalf("status = %d, want 200", resp.StatusCode)
 		}
 		v := decodeJSON[TaskView](t, resp.Body)
-		if v.WeekOf != target {
+		if string(v.WeekOf) != target {
 			t.Fatalf("weekOf = %q, want %q", v.WeekOf, target)
 		}
 	})
 
 	t.Run("USER is forbidden from patching weekOf, even on own team's task", func(t *testing.T) {
-		resp, err := cUser.do("PATCH", "/api/tasks/"+teamTask.ID.Hex(), `{"weekOf":"2025-W06"}`)
+		resp, err := cUser.do("PATCH", "/api/tasks/"+teamTask.ID, `{"weekOf":"2025-W06"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -205,7 +203,7 @@ func TestPatchWeekOf(t *testing.T) {
 	// a case-sensitive raw-JSON presence check would miss it — that gap let
 	// a USER bypass the 403 above (and the ISO-week validation) entirely.
 	t.Run("USER is forbidden from patching weekOf via a non-canonical key", func(t *testing.T) {
-		resp, err := cUser.do("PATCH", "/api/tasks/"+teamTask.ID.Hex(), `{"weekof":"2025-W06"}`)
+		resp, err := cUser.do("PATCH", "/api/tasks/"+teamTask.ID, `{"weekof":"2025-W06"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +214,7 @@ func TestPatchWeekOf(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var tk Task
-		if err := store.tasks.FindOne(ctx, bson.M{"_id": teamTask.ID}).Decode(&tk); err != nil {
+		if err := testDB(t, store).WithContext(ctx).Where("id = ?", teamTask.ID).Take(&tk).Error; err != nil {
 			t.Fatalf("fetch task: %v", err)
 		}
 		if tk.WeekOf == "2025-W06" {
@@ -225,7 +223,7 @@ func TestPatchWeekOf(t *testing.T) {
 	})
 
 	t.Run("malformed ISO week is 400", func(t *testing.T) {
-		resp, err := cAdmin.do("PATCH", "/api/tasks/"+teamTask.ID.Hex(), `{"weekOf":"not-a-week"}`)
+		resp, err := cAdmin.do("PATCH", "/api/tasks/"+teamTask.ID, `{"weekOf":"not-a-week"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +234,7 @@ func TestPatchWeekOf(t *testing.T) {
 	})
 
 	t.Run("weekOf on a personal task is 400", func(t *testing.T) {
-		resp, err := cAdmin.do("PATCH", "/api/tasks/"+personalTask.ID.Hex(), `{"weekOf":"2025-W05"}`)
+		resp, err := cAdmin.do("PATCH", "/api/tasks/"+personalTask.ID, `{"weekOf":"2025-W05"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,14 +280,14 @@ func TestBoardVisibility(t *testing.T) {
 	})
 	directTask(t, store, Task{
 		Title: "terminal current", Horizon: HorizonDaily, Period: "2026-07-09",
-		Status: StatusDone, TeamID: &team.ID, WeekOf: W,
+		Status: StatusDone, TeamID: &team.ID, WeekOf: model.NullStr(W),
 	})
 	directTask(t, store, Task{
 		Title: "undated open current", Horizon: HorizonDaily, Period: "2026-07-09",
-		Status: StatusInProgress, TeamID: &team.ID, WeekOf: W,
+		Status: StatusInProgress, TeamID: &team.ID, WeekOf: model.NullStr(W),
 	})
 
-	resp, err := c.do("GET", "/api/teams/"+team.ID.Hex()+"/board", "")
+	resp, err := c.do("GET", "/api/teams/"+team.ID+"/board", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +343,7 @@ func TestTeamRollover(t *testing.T) {
 		Name: "Rollover User", Email: "rollover-user@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{team.ID},
+		TeamIDs:      []string{team.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -371,7 +369,7 @@ func TestTeamRollover(t *testing.T) {
 	})
 	directTask(t, store, Task{ // excluded: current week
 		Title: "current week open", Horizon: HorizonDaily, Period: "2026-07-01",
-		Status: StatusTodo, TeamID: &team.ID, WeekOf: W,
+		Status: StatusTodo, TeamID: &team.ID, WeekOf: model.NullStr(W),
 	})
 	directTask(t, store, Task{ // excluded: terminal
 		Title: "terminal old", Horizon: HorizonDaily, Period: "2026-07-01",
@@ -379,7 +377,7 @@ func TestTeamRollover(t *testing.T) {
 	})
 
 	t.Run("USER is forbidden", func(t *testing.T) {
-		resp, err := cUser.do("GET", "/api/teams/"+team.ID.Hex()+"/rollover", "")
+		resp, err := cUser.do("GET", "/api/teams/"+team.ID+"/rollover", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -390,7 +388,7 @@ func TestTeamRollover(t *testing.T) {
 	})
 
 	t.Run("ADMIN sees only eligible tasks, sorted weekOf then createdAt", func(t *testing.T) {
-		resp, err := cAdmin.do("GET", "/api/teams/"+team.ID.Hex()+"/rollover", "")
+		resp, err := cAdmin.do("GET", "/api/teams/"+team.ID+"/rollover", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -434,7 +432,7 @@ func TestTeamHistory(t *testing.T) {
 		Name: "History User", Email: "history-user@example.com",
 		PasswordHash: mustHash(t, "userpass1"),
 		SystemRole:   RoleUser,
-		TeamIDs:      []bson.ObjectID{teamA.ID},
+		TeamIDs:      []string{teamA.ID},
 	})
 
 	cAdmin := newJSONClient(srv)
@@ -446,7 +444,7 @@ func TestTeamHistory(t *testing.T) {
 
 	directTask(t, store, Task{ // excluded: current-week completion
 		Title: "current week done", Horizon: HorizonDaily, Period: "2026-07-01",
-		Status: StatusDone, TeamID: &teamA.ID, WeekOf: W,
+		Status: StatusDone, TeamID: &teamA.ID, WeekOf: model.NullStr(W),
 		CreatedAt: time.Now(),
 	})
 
@@ -464,7 +462,7 @@ func TestTeamHistory(t *testing.T) {
 	}
 
 	t.Run("USER on a non-member team is forbidden", func(t *testing.T) {
-		resp, err := cUser.do("GET", "/api/teams/"+teamB.ID.Hex()+"/history", "")
+		resp, err := cUser.do("GET", "/api/teams/"+teamB.ID+"/history", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -480,7 +478,7 @@ func TestTeamHistory(t *testing.T) {
 	}
 
 	t.Run("first page: hasMore true, sorted createdAt desc, excludes current week", func(t *testing.T) {
-		resp, err := cAdmin.do("GET", "/api/teams/"+teamA.ID.Hex()+"/history?limit=2", "")
+		resp, err := cAdmin.do("GET", "/api/teams/"+teamA.ID+"/history?limit=2", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -506,7 +504,7 @@ func TestTeamHistory(t *testing.T) {
 	})
 
 	t.Run("second page: hasMore false at the tail boundary", func(t *testing.T) {
-		resp, err := cAdmin.do("GET", "/api/teams/"+teamA.ID.Hex()+"/history?offset=2&limit=2", "")
+		resp, err := cAdmin.do("GET", "/api/teams/"+teamA.ID+"/history?offset=2&limit=2", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -525,75 +523,4 @@ func TestTeamHistory(t *testing.T) {
 			t.Fatalf("unexpected task at tail: %q", body.Tasks[0].Title)
 		}
 	})
-}
-
-// TestBackfillWeekOf covers the startup catch-up: team tasks missing weekOf
-// get isoWeek(completedAt ?? createdAt); personal tasks and tasks that
-// already carry weekOf are left untouched; a second run is a no-op.
-func TestBackfillWeekOf(t *testing.T) {
-	store := newTestStore(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	team := directTeam(t, store, "Backfill Team")
-
-	completedAt := time.Date(2021, 6, 15, 12, 0, 0, 0, time.Local)
-	createdAtWithCompletion := time.Date(2021, 1, 10, 9, 0, 0, 0, time.Local)
-	createdAtNoCompletion := time.Date(2021, 3, 20, 9, 0, 0, 0, time.Local)
-	createdAtPersonal := time.Date(2021, 3, 20, 9, 0, 0, 0, time.Local)
-
-	withCompleted := directTask(t, store, Task{
-		Title: "has completedAt", Horizon: HorizonDaily, Period: "2021-06-15",
-		Status: StatusDone, TeamID: &team.ID,
-		CreatedAt: createdAtWithCompletion, CompletedAt: &completedAt,
-	})
-	withoutCompleted := directTask(t, store, Task{
-		Title: "no completedAt", Horizon: HorizonDaily, Period: "2021-03-20",
-		Status: StatusTodo, TeamID: &team.ID,
-		CreatedAt: createdAtNoCompletion,
-	})
-	personalTask := directTask(t, store, Task{
-		Title: "personal, no teamId", Horizon: HorizonDaily, Period: "2021-03-20",
-		Status: StatusTodo, CreatedAt: createdAtPersonal,
-	})
-	alreadySet := directTask(t, store, Task{
-		Title: "already has weekOf", Horizon: HorizonDaily, Period: "2021-03-20",
-		Status: StatusTodo, TeamID: &team.ID, WeekOf: "2099-W01",
-		CreatedAt: createdAtNoCompletion,
-	})
-
-	if err := store.BackfillWeekOf(ctx); err != nil {
-		t.Fatalf("backfill: %v", err)
-	}
-
-	getWeekOf := func(id bson.ObjectID) string {
-		t.Helper()
-		var tk Task
-		if err := store.tasks.FindOne(ctx, bson.M{"_id": id}).Decode(&tk); err != nil {
-			t.Fatalf("fetch task: %v", err)
-		}
-		return tk.WeekOf
-	}
-
-	if got, want := getWeekOf(withCompleted.ID), isoWeekString(completedAt); got != want {
-		t.Fatalf("withCompleted weekOf = %q, want %q (from completedAt)", got, want)
-	}
-	if got, want := getWeekOf(withoutCompleted.ID), isoWeekString(createdAtNoCompletion); got != want {
-		t.Fatalf("withoutCompleted weekOf = %q, want %q (from createdAt)", got, want)
-	}
-	if got := getWeekOf(personalTask.ID); got != "" {
-		t.Fatalf("personal task backfilled weekOf = %q, want left empty (untouched)", got)
-	}
-	if got := getWeekOf(alreadySet.ID); got != "2099-W01" {
-		t.Fatalf("already-set weekOf changed to %q, want unchanged 2099-W01", got)
-	}
-
-	// Idempotency: a second run must not alter anything (no doc still
-	// matches the "weekOf missing" filter).
-	if err := store.BackfillWeekOf(ctx); err != nil {
-		t.Fatalf("second backfill run: %v", err)
-	}
-	if got, want := getWeekOf(withCompleted.ID), isoWeekString(completedAt); got != want {
-		t.Fatalf("weekOf changed on second backfill run: got %q want %q", got, want)
-	}
 }
