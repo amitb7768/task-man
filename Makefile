@@ -1,4 +1,4 @@
-.PHONY: up down mongo pg ui run test vet mac-dev mac-build
+.PHONY: up down mongo pg ui run build test vet mac-dev mac-build
 
 # Postgres DSNs (docs/DESIGN_PG_FSM_MIGRATION.md). Defaults match
 # docker-compose's `postgres` service; override from the environment (or a
@@ -27,12 +27,17 @@ pg:
 ui:
 	cd ui && npm ci && npm run build
 
+# Run from the repo root: the server serves the CWD-relative ui/dist.
 run:
-	TASKMAN_PG_DSN='$(TASKMAN_PG_DSN)' go run ./server
+	TASKMAN_PG_DSN='$(TASKMAN_PG_DSN)' go run ./cmd/taskman
 
-# Postgres-backed tests (internal/repo, server) each migrate a throwaway
-# scratch schema on TASKMAN_TEST_PG_DSN and drop it afterwards; they skip
-# when it's unset. Needs `make pg` up.
+# The deployable binary (docs/DEPLOYMENT.md); run it from the repo root too.
+build:
+	go build -o taskman-bin ./cmd/taskman
+
+# Postgres-backed tests (internal/repo, internal/service, internal/httpapi)
+# each migrate a throwaway scratch schema on TASKMAN_TEST_PG_DSN and drop it
+# afterwards; they skip when it's unset. Needs `make pg` up.
 test:
 	TASKMAN_TEST_PG_DSN='$(TASKMAN_TEST_PG_DSN)' go test ./...
 

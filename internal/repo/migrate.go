@@ -1,6 +1,3 @@
-// Package repo holds the Postgres-backed persistence layer (wave 1.1+) and,
-// for wave 1.0, just the embedded schema migrations and the boot-time
-// runner that applies them.
 package repo
 
 import (

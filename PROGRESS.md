@@ -500,3 +500,38 @@ without the CAS) and the legacy-cancelled regression. Full suite green,
 Known: `./taskman-bin` on :8484 predates v9 while ui/dist is already
 rebuilt — rebuild + restart before using the new UI live. Tauri shell has
 no blob downloads → Copy-as-Markdown is its export path.
+
+---
+
+## Session 2026-09-29 — Postgres + FSM migration, P1–P3 (branch pg-fsm-migration)
+
+Contract: docs/DESIGN_PG_FSM_MIGRATION.md (locked decisions: Postgres 16 via
+gorm, FKs enforced + restore validated, "middle path" layering). Orchestrated
+waves; prod (`:8484` + Mongo) untouched until P4.
+
+P1 (087d57e, 599637a, ae1f31c): PG schema + embedded golang-migrate
+migrations run at boot; `internal/model` (types + period/recurrence math);
+full PG persistence (tasks, activity as a child table, members +
+member_teams join, teams, sessions); PatchTask's updatedAt-CAS/8-retry loop
+replaced by one `SELECT … FOR UPDATE` tx; server switched to PG, Mongo store
+and mongo-driver deleted; test suite re-homed on a scratch-schema-per-test
+PG harness. Accepted behavior deltas listed in the design doc.
+
+P2 (657a186 + wave 2.2): ipd FSM engine copied into `internal/fsm`
+(decoupled); every task status change runs `ExecuteTransition` inside the
+patch tx, `task_activity` is the audit sink; permissive `task.yaml` = zero
+API change (teeth test proves a restricted table 409s with no trace).
+
+P3 (wave 3.1, zero behavior change): `server/` split into `cmd/taskman`
+(+ graceful shutdown: SIGINT/SIGTERM → `Shutdown` ≤10s → close pool) and
+`internal/httpapi`; `repo.Store` became `service.Service` in
+`internal/service` (bodies verbatim; `APIError` moved with it); `internal/repo`
+shrank to Migrate/Open/NewID + pure query helpers. N+1s fixed: per-task
+progress → one grouped query per list call (`progressFor`), TeamBoard's
+per-member reads → one read partitioned by assignee. `.gitignore`'s bare
+`taskman` pattern (would have ignored `cmd/taskman/`) root-anchored. Docs:
+root CLAUDE.md layout/commands, new `internal/{httpapi,service}/CLAUDE.md`;
+`make build` → `taskman-bin` from `./cmd/taskman`.
+
+Next: P4 — Mongo→PG data migration (`cmd/migrate-mongo`), cutover, soak,
+retire Mongo.

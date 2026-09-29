@@ -81,3 +81,5 @@ Fable orchestrates; opus/sonnet subagents implement; Fable personally owns schem
 Review gate = read the load-bearing files, run `go build ./... && go test ./... -race`, and check the wave's golden semantics before the next wave launches. Waves 1.1a/1.1b run in parallel; everything else is sequential.
 
 **P1 completed 2026-09-29** — commits 087d57e (1.0), 599637a (1.1), ae1f31c (1.2): server fully on Postgres, Mongo store deleted, 35/36 server tests re-homed bodies-unchanged, mongo-driver out of go.mod. FSM source correction: ipd checkout moved to `main` — the copy takes `internal/fsm` from there (provenance recorded in the copied README).
+
+**P2 completed 2026-09-29** — commits 657a186 (2.1 copy @ b6f94dbb5; NB: ipd internal/fsm is hand-rolled, looplab was never a dep) and the 2.2 wiring commit: every status change runs ExecuteTransition in the patch tx, task_activity is the WriteAudit sink, teeth test proves enforcement (restricted YAML → 409, no trace), zero API-visible change.
