@@ -51,7 +51,7 @@ cmd/migrate-mongo/      one-shot data migration (only place mongo-driver survive
 
 ## Behavior deltas (accepted, everything else byte-compatible)
 
-1. Restore validates refs (was: raw unvalidated insert). 2. Search is ILIKE, not stemmed $text. 3. Deleting a member SET-NULLs assignments in-DB (same net effect). 4. Timestamps keep microseconds (CAS that depended on ms truncation is gone). 5. Concurrent patch conflicts wait on a row lock instead of 409-after-8-retries.
+1. Restore validates refs (was: raw unvalidated insert). 2. Search is ILIKE, not stemmed $text. 3. Deleting a member SET-NULLs assignments in-DB (same net effect). 4. Timestamps keep microseconds (CAS that depended on ms truncation is gone). 5. Concurrent patch conflicts wait on a row lock instead of 409-after-8-retries. 6. Ids are opaque strings end-to-end (P1 wave 1.2): a malformed path id is the repo's 404 (Mongo-era handlers 400'd on bad hex); garbage filter ids match nothing (200 + empty); reschedule silently skips unknown ids. 7. Email uniqueness among login-enabled members is now case-insensitive (lower(email) partial unique) — same-email-different-case create/enable 409s where Mongo allowed it. 8. Team deletion detaches its members' join rows (Mongo left dangling teamIds).
 
 ## Phases (each shippable; plan doc = this file)
 
@@ -79,3 +79,5 @@ Fable orchestrates; opus/sonnet subagents implement; Fable personally owns schem
 | 4.2 | Cutover: stop → migrate → start on PG → soak 1wk → retire mongo | **user-gated, Fable drives live** | Rollback = untouched mongo volume |
 
 Review gate = read the load-bearing files, run `go build ./... && go test ./... -race`, and check the wave's golden semantics before the next wave launches. Waves 1.1a/1.1b run in parallel; everything else is sequential.
+
+**P1 completed 2026-09-29** — commits 087d57e (1.0), 599637a (1.1), ae1f31c (1.2): server fully on Postgres, Mongo store deleted, 35/36 server tests re-homed bodies-unchanged, mongo-driver out of go.mod. FSM source correction: ipd checkout moved to `main` — the copy takes `internal/fsm` from there (provenance recorded in the copied README).
