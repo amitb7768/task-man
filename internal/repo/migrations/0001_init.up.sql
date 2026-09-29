@@ -39,6 +39,9 @@ CREATE UNIQUE INDEX members_email_login_unique
 CREATE TABLE member_teams (
     member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     team_id   TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    -- Preserves Mongo's teamIds array order (rows are replaced wholesale on
+    -- member writes; never rely on physical row order).
+    pos       SMALLINT NOT NULL DEFAULT 0,
     PRIMARY KEY (member_id, team_id)
 );
 CREATE INDEX member_teams_team ON member_teams (team_id);
@@ -47,7 +50,7 @@ CREATE TABLE tasks (
     id           TEXT PRIMARY KEY,
     title        TEXT COLLATE "C" NOT NULL,
     notes        TEXT,
-    horizon      TEXT NOT NULL CHECK (horizon IN ('daily', 'weekly', 'monthly')),
+    horizon      TEXT NOT NULL CHECK (horizon IN ('daily', 'weekly', 'monthly', 'backlog')),
     period       TEXT COLLATE "C" NOT NULL DEFAULT '', -- '' = backlog pool (v7)
     due_date     TEXT COLLATE "C",           -- YYYY-MM-DD; NULL = none (never '')
     status       TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done', 'cancelled')),

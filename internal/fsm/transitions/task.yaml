@@ -1,0 +1,122 @@
+# Task status FSM (docs/DESIGN_PG_FSM_MIGRATION.md, locked decision #1).
+#
+# PERMISSIVE AT LAUNCH: all 12 ordered pairs of {todo, in_progress, done,
+# cancelled} are legal — the UI depends on free movement (undo toasts,
+# done<->todo toggles), so launching the FSM must change zero behavior.
+# Tightening later = delete/guard rows here, nothing else.
+#
+# The PATCH handler maps (current status -> requested status) to the event
+# below; a PATCH that does not change status never enters the FSM. There is
+# no substatus and no guard — the task row is already locked FOR UPDATE by
+# the patch transaction, and ApplyStateChange's compare-and-set is the
+# concurrency backstop.
+#
+# Event map (one event per intent, reused across sources where the intent
+# is the same; each (event, from) pair resolves to exactly one target):
+#   start:    todo         -> in_progress
+#   revert:   in_progress  -> todo
+#   complete: todo | in_progress | cancelled -> done
+#   cancel:   todo | in_progress | done      -> cancelled
+#   reopen:   done         -> todo
+#   resume:   done | cancelled -> in_progress
+#   uncancel: cancelled    -> todo
+transitions:
+  # ── from todo ─────────────────────────────────────────────────────────────
+  - from_status: todo
+    from_substatus: ""
+    event: start
+    to_status: in_progress
+    to_substatus: ""
+    displayName: "Started"
+    guard: ""
+
+  - from_status: todo
+    from_substatus: ""
+    event: complete
+    to_status: done
+    to_substatus: ""
+    displayName: "Completed"
+    guard: ""
+
+  - from_status: todo
+    from_substatus: ""
+    event: cancel
+    to_status: cancelled
+    to_substatus: ""
+    displayName: "Cancelled"
+    guard: ""
+
+  # ── from in_progress ──────────────────────────────────────────────────────
+  - from_status: in_progress
+    from_substatus: ""
+    event: revert
+    to_status: todo
+    to_substatus: ""
+    displayName: "Reverted To Todo"
+    guard: ""
+
+  - from_status: in_progress
+    from_substatus: ""
+    event: complete
+    to_status: done
+    to_substatus: ""
+    displayName: "Completed"
+    guard: ""
+
+  - from_status: in_progress
+    from_substatus: ""
+    event: cancel
+    to_status: cancelled
+    to_substatus: ""
+    displayName: "Cancelled"
+    guard: ""
+
+  # ── from done ─────────────────────────────────────────────────────────────
+  - from_status: done
+    from_substatus: ""
+    event: reopen
+    to_status: todo
+    to_substatus: ""
+    displayName: "Reopened"
+    guard: ""
+
+  - from_status: done
+    from_substatus: ""
+    event: resume
+    to_status: in_progress
+    to_substatus: ""
+    displayName: "Resumed"
+    guard: ""
+
+  - from_status: done
+    from_substatus: ""
+    event: cancel
+    to_status: cancelled
+    to_substatus: ""
+    displayName: "Cancelled"
+    guard: ""
+
+  # ── from cancelled ────────────────────────────────────────────────────────
+  - from_status: cancelled
+    from_substatus: ""
+    event: uncancel
+    to_status: todo
+    to_substatus: ""
+    displayName: "Uncancelled"
+    guard: ""
+
+  - from_status: cancelled
+    from_substatus: ""
+    event: resume
+    to_status: in_progress
+    to_substatus: ""
+    displayName: "Resumed"
+    guard: ""
+
+  - from_status: cancelled
+    from_substatus: ""
+    event: complete
+    to_status: done
+    to_substatus: ""
+    displayName: "Completed"
+    guard: ""

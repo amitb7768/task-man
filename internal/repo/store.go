@@ -7,6 +7,7 @@ package repo
 
 import (
 	"fmt"
+	"net/url"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -24,7 +25,21 @@ func New(db *gorm.DB) *Store { return &Store{db: db} }
 
 // Open opens a gorm Postgres handle on dsn. SQL logging is off: the server
 // has its own request log, and every repo error is returned to the caller.
+//
+// The session TimeZone is forced to UTC so every timestamptz reads back in
+// UTC — the Mongo driver decoded UTC, so this keeps read-path JSON in its
+// historical "…Z" form across ALL repos (create/patch responses still carry
+// the in-memory local `now`, also Mongo parity). pgx passes unknown URL
+// query params to the server as runtime session parameters.
 func Open(dsn string) (*gorm.DB, error) {
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
+		q := u.Query()
+		if q.Get("TimeZone") == "" && q.Get("timezone") == "" {
+			q.Set("TimeZone", "UTC")
+			u.RawQuery = q.Encode()
+			dsn = u.String()
+		}
+	}
 	return gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
