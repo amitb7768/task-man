@@ -733,32 +733,24 @@ func (s *Store) patchTaskTx(ctx context.Context, tx *gorm.DB, id string, raw []b
 		}
 	}
 
-	// Everything validated: write. The UPDATE never touches task_activity.
-	res := tx.Model(&model.Task{ID: id}).Select("*").Omit("id", "created_at").Updates(t)
-	if res.Error != nil {
-		return nil, res.Error
-	}
-
-	// Status auto-log, appended LAST (after all validation) so a rejected
-	// patch leaves no trace. u is nil in direct repo tests -> by/byName empty.
-	if orig.Status != t.Status {
-		e := model.ActivityEntry{
-			ID:     NewID(),
-			TaskID: id,
-			Kind:   model.ActivityStatus,
-			Date:   localDate(now),
-			At:     now,
-			From:   orig.Status,
-			To:     t.Status,
+	// Everything validated: write.
+	if orig.Status == t.Status {
+		// Status unchanged: the FSM is never entered. The UPDATE never
+		// touches task_activity.
+		res := tx.Model(&model.Task{ID: id}).Select("*").Omit("id", "created_at").Updates(t)
+		if res.Error != nil {
+			return nil, res.Error
 		}
-		if u != nil {
-			uid := u.ID
-			e.By, e.ByName = &uid, u.Name
-		}
-		if err := tx.Create(&e).Error; err != nil {
+	} else {
+		// Status change: through the FSM (fsm.go) — status CAS, the rest of
+		// the row, then the status auto-log, all in this tx (savepoint).
+		// The log is written LAST (after all validation) so a rejected patch
+		// or transition leaves no trace.
+		e, err := s.transitionTaskStatus(ctx, tx, t, orig.Status, now, u)
+		if err != nil {
 			return nil, err
 		}
-		t.Activity = append(t.Activity, e)
+		t.Activity = append(t.Activity, *e)
 	}
 
 	view, err := toView(tx, *t)

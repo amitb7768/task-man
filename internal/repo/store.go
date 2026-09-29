@@ -12,16 +12,36 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	fsm "taskman/internal/fsm/core"
 )
 
 // Store is the Postgres-backed store. One instance per process; safe for
 // concurrent use (gorm.DB is a connection pool).
 type Store struct {
 	db *gorm.DB
+	// taskFSM routes every task status change (see fsm.go). Built once here.
+	taskFSM *fsm.Manager
 }
 
 // New wraps an open gorm handle. Callers run Migrate(dsn) first.
-func New(db *gorm.DB) *Store { return &Store{db: db} }
+//
+// It panics if the embedded transitions/task.yaml fails to load — a build
+// defect (the YAML is compiled in and covered by the loader tests), not a
+// runtime condition.
+func New(db *gorm.DB) *Store {
+	mgr, err := newTaskManager(db)
+	if err != nil {
+		panic(fmt.Sprintf("repo: load task FSM: %v", err))
+	}
+	return newWithManager(db, mgr)
+}
+
+// newWithManager is the test seam: a Store over db with a caller-built task
+// FSM (e.g. a restricted or instrumented transition table).
+func newWithManager(db *gorm.DB, mgr *fsm.Manager) *Store {
+	return &Store{db: db, taskFSM: mgr}
+}
 
 // Open opens a gorm Postgres handle on dsn. SQL logging is off: the server
 // has its own request log, and every repo error is returned to the caller.
