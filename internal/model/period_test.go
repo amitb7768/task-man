@@ -1,4 +1,4 @@
-package main
+package model
 
 import (
 	"testing"
@@ -26,9 +26,9 @@ func TestValidatePeriod(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := validatePeriod(c.horizon, c.period)
+			err := ValidatePeriod(c.horizon, c.period)
 			if (err != nil) != c.wantErr {
-				t.Errorf("validatePeriod(%q, %q) err=%v, wantErr=%v", c.horizon, c.period, err, c.wantErr)
+				t.Errorf("ValidatePeriod(%q, %q) err=%v, wantErr=%v", c.horizon, c.period, err, c.wantErr)
 			}
 		})
 	}
@@ -46,9 +46,9 @@ func TestHorizonRank(t *testing.T) {
 		{"bogus", 0, false},
 	}
 	for _, c := range cases {
-		rank, ok := horizonRank(c.horizon)
+		rank, ok := HorizonRank(c.horizon)
 		if rank != c.wantRank || ok != c.wantOK {
-			t.Errorf("horizonRank(%q) = (%d,%v), want (%d,%v)", c.horizon, rank, ok, c.wantRank, c.wantOK)
+			t.Errorf("HorizonRank(%q) = (%d,%v), want (%d,%v)", c.horizon, rank, ok, c.wantRank, c.wantOK)
 		}
 	}
 }
@@ -65,9 +65,9 @@ func TestCurrentPeriodAt(t *testing.T) {
 		{HorizonMonthly, "2026-07"},
 	}
 	for _, c := range cases {
-		got := currentPeriodAt(c.horizon, ref)
+		got := CurrentPeriodAt(c.horizon, ref)
 		if got != c.want {
-			t.Errorf("currentPeriodAt(%q, %v) = %q, want %q", c.horizon, ref, got, c.want)
+			t.Errorf("CurrentPeriodAt(%q, %v) = %q, want %q", c.horizon, ref, got, c.want)
 		}
 	}
 }
@@ -90,12 +90,12 @@ func TestNextPeriod(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := nextPeriod(c.horizon, c.period)
+			got, err := NextPeriod(c.horizon, c.period)
 			if err != nil {
-				t.Fatalf("nextPeriod(%q,%q) unexpected err: %v", c.horizon, c.period, err)
+				t.Fatalf("NextPeriod(%q,%q) unexpected err: %v", c.horizon, c.period, err)
 			}
 			if got != c.want {
-				t.Errorf("nextPeriod(%q,%q) = %q, want %q", c.horizon, c.period, got, c.want)
+				t.Errorf("NextPeriod(%q,%q) = %q, want %q", c.horizon, c.period, got, c.want)
 			}
 		})
 	}
@@ -115,18 +115,18 @@ func TestWeekOfDate(t *testing.T) {
 		{"2026-12-28", "2026-W53"}, // Monday of that same week
 	}
 	for _, c := range cases {
-		got, err := weekOfDate(c.date)
+		got, err := WeekOfDate(c.date)
 		if err != nil {
-			t.Fatalf("weekOfDate(%q) unexpected err: %v", c.date, err)
+			t.Fatalf("WeekOfDate(%q) unexpected err: %v", c.date, err)
 		}
 		if got != c.want {
-			t.Errorf("weekOfDate(%q) = %q, want %q", c.date, got, c.want)
+			t.Errorf("WeekOfDate(%q) = %q, want %q", c.date, got, c.want)
 		}
 	}
 }
 
 func TestDatesInWeek(t *testing.T) {
-	got, err := datesInWeek("2026-W28")
+	got, err := DatesInWeek("2026-W28")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestDatesInWeek(t *testing.T) {
 		"2026-07-10", "2026-07-11", "2026-07-12",
 	}
 	if got != want {
-		t.Errorf("datesInWeek(2026-W28) = %v, want %v", got, want)
+		t.Errorf("DatesInWeek(2026-W28) = %v, want %v", got, want)
 	}
 }
 
@@ -151,29 +151,29 @@ func TestMonthOfWeek(t *testing.T) {
 		{"2026-W27", "2026-07"},
 	}
 	for _, c := range cases {
-		got, err := monthOfWeek(c.week)
+		got, err := MonthOfWeek(c.week)
 		if err != nil {
-			t.Fatalf("monthOfWeek(%q) unexpected err: %v", c.week, err)
+			t.Fatalf("MonthOfWeek(%q) unexpected err: %v", c.week, err)
 		}
 		if got != c.want {
-			t.Errorf("monthOfWeek(%q) = %q, want %q", c.week, got, c.want)
+			t.Errorf("MonthOfWeek(%q) = %q, want %q", c.week, got, c.want)
 		}
 	}
 }
 
 func TestWeeksInMonth(t *testing.T) {
 	// July 2026: Jul 1 is a Wednesday (week 2026-W27), Jul 31 is a Friday.
-	got, err := weeksInMonth("2026-07")
+	got, err := WeeksInMonth("2026-07")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-W27", "2026-W28", "2026-W29", "2026-W30", "2026-W31"}
 	if len(got) != len(want) {
-		t.Fatalf("weeksInMonth(2026-07) = %v, want %v", got, want)
+		t.Fatalf("WeeksInMonth(2026-07) = %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("weeksInMonth(2026-07)[%d] = %q, want %q", i, got[i], want[i])
+			t.Errorf("WeeksInMonth(2026-07)[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }
@@ -189,16 +189,16 @@ func TestDaysBetween(t *testing.T) {
 		{"2026-12-31", "2027-01-01", 1},  // year rollover
 	}
 	for _, c := range cases {
-		got, err := daysBetween(c.a, c.b)
+		got, err := DaysBetween(c.a, c.b)
 		if err != nil {
-			t.Fatalf("daysBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
+			t.Fatalf("DaysBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
 		}
 		if got != c.want {
-			t.Errorf("daysBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
+			t.Errorf("DaysBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
 		}
 	}
-	if _, err := daysBetween("bogus", "2026-07-01"); err == nil {
-		t.Error("daysBetween with invalid date: want error, got nil")
+	if _, err := DaysBetween("bogus", "2026-07-01"); err == nil {
+		t.Error("DaysBetween with invalid date: want error, got nil")
 	}
 }
 
@@ -214,16 +214,16 @@ func TestWeeksBetween(t *testing.T) {
 		{"2026-W52", "2027-W01", 2},
 	}
 	for _, c := range cases {
-		got, err := weeksBetween(c.a, c.b)
+		got, err := WeeksBetween(c.a, c.b)
 		if err != nil {
-			t.Fatalf("weeksBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
+			t.Fatalf("WeeksBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
 		}
 		if got != c.want {
-			t.Errorf("weeksBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
+			t.Errorf("WeeksBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
 		}
 	}
-	if _, err := weeksBetween("bogus", "2026-W27"); err == nil {
-		t.Error("weeksBetween with invalid week: want error, got nil")
+	if _, err := WeeksBetween("bogus", "2026-W27"); err == nil {
+		t.Error("WeeksBetween with invalid week: want error, got nil")
 	}
 }
 
@@ -238,16 +238,16 @@ func TestMonthsBetween(t *testing.T) {
 		{"2026-12", "2027-01", 1}, // year rollover
 	}
 	for _, c := range cases {
-		got, err := monthsBetween(c.a, c.b)
+		got, err := MonthsBetween(c.a, c.b)
 		if err != nil {
-			t.Fatalf("monthsBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
+			t.Fatalf("MonthsBetween(%q,%q) unexpected err: %v", c.a, c.b, err)
 		}
 		if got != c.want {
-			t.Errorf("monthsBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
+			t.Errorf("MonthsBetween(%q,%q) = %d, want %d", c.a, c.b, got, c.want)
 		}
 	}
-	if _, err := monthsBetween("bogus", "2026-07"); err == nil {
-		t.Error("monthsBetween with invalid month: want error, got nil")
+	if _, err := MonthsBetween("bogus", "2026-07"); err == nil {
+		t.Error("MonthsBetween with invalid month: want error, got nil")
 	}
 }
 
@@ -262,9 +262,9 @@ func TestDateForDayOfMonth(t *testing.T) {
 		{2026, 7, 15, "2026-07-15"}, // no clamp needed
 	}
 	for _, c := range cases {
-		got := dateForDayOfMonth(c.year, c.month, c.day).Format(dateLayout)
+		got := DateForDayOfMonth(c.year, c.month, c.day).Format(DateLayout)
 		if got != c.want {
-			t.Errorf("dateForDayOfMonth(%d,%d,%d) = %q, want %q", c.year, c.month, c.day, got, c.want)
+			t.Errorf("DateForDayOfMonth(%d,%d,%d) = %q, want %q", c.year, c.month, c.day, got, c.want)
 		}
 	}
 }

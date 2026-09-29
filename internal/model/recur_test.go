@@ -1,4 +1,4 @@
-package main
+package model
 
 import (
 	"reflect"
@@ -34,9 +34,9 @@ func TestValidateRecurrence(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := validateRecurrence(&c.r)
+			err := ValidateRecurrence(&c.r)
 			if (err != nil) != c.wantErr {
-				t.Errorf("validateRecurrence(%+v) err=%v, wantErr=%v", c.r, err, c.wantErr)
+				t.Errorf("ValidateRecurrence(%+v) err=%v, wantErr=%v", c.r, err, c.wantErr)
 			}
 		})
 	}
@@ -55,33 +55,33 @@ func TestRecurrenceHorizon(t *testing.T) {
 		{"bogus", "", false},
 	}
 	for _, c := range cases {
-		got, ok := recurrenceHorizon(c.freq)
+		got, ok := RecurrenceHorizon(c.freq)
 		if got != c.want || ok != c.wantOK {
-			t.Errorf("recurrenceHorizon(%q) = (%q,%v), want (%q,%v)", c.freq, got, ok, c.want, c.wantOK)
+			t.Errorf("RecurrenceHorizon(%q) = (%q,%v), want (%q,%v)", c.freq, got, ok, c.want, c.wantOK)
 		}
 	}
 }
 
 func TestMissingPeriodsDaily(t *testing.T) {
 	r := &Recurrence{Freq: FreqDaily}
-	got, err := missingPeriods(r, HorizonDaily, "2026-07-05", "2026-07-08")
+	got, err := MissingPeriods(r, HorizonDaily, "2026-07-05", "2026-07-08")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-07-06", "2026-07-07", "2026-07-08"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("missingPeriods = %v, want %v", got, want)
+		t.Errorf("MissingPeriods = %v, want %v", got, want)
 	}
 }
 
 func TestMissingPeriodsNoneWhenCurrent(t *testing.T) {
 	r := &Recurrence{Freq: FreqDaily}
-	got, err := missingPeriods(r, HorizonDaily, "2026-07-08", "2026-07-08")
+	got, err := MissingPeriods(r, HorizonDaily, "2026-07-08", "2026-07-08")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("missingPeriods = %v, want none (latest == current)", got)
+		t.Errorf("MissingPeriods = %v, want none (latest == current)", got)
 	}
 }
 
@@ -90,49 +90,49 @@ func TestMissingPeriodsWeekdays(t *testing.T) {
 	// candidate dates 07-06(Mon) 07-07(Tue) 07-08(Wed) 07-09(Thu) 07-10(Fri)
 	// 07-11(Sat) 07-12(Sun) 07-13(Mon) -> keep Mon/Wed/Fri/Mon.
 	r := &Recurrence{Freq: FreqWeekdays, Weekdays: []int{1, 3, 5}}
-	got, err := missingPeriods(r, HorizonDaily, "2026-07-05", "2026-07-13")
+	got, err := MissingPeriods(r, HorizonDaily, "2026-07-05", "2026-07-13")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-07-06", "2026-07-08", "2026-07-10", "2026-07-13"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("missingPeriods(weekdays) = %v, want %v", got, want)
+		t.Errorf("MissingPeriods(weekdays) = %v, want %v", got, want)
 	}
 }
 
 func TestMissingPeriodsWeekly(t *testing.T) {
 	r := &Recurrence{Freq: FreqWeekly}
-	got, err := missingPeriods(r, HorizonWeekly, "2026-W26", "2026-W28")
+	got, err := MissingPeriods(r, HorizonWeekly, "2026-W26", "2026-W28")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-W27", "2026-W28"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("missingPeriods(weekly) = %v, want %v", got, want)
+		t.Errorf("MissingPeriods(weekly) = %v, want %v", got, want)
 	}
 }
 
 func TestMissingPeriodsWeeklyYearRollover(t *testing.T) {
 	r := &Recurrence{Freq: FreqWeekly}
-	got, err := missingPeriods(r, HorizonWeekly, "2026-W52", "2027-W01")
+	got, err := MissingPeriods(r, HorizonWeekly, "2026-W52", "2027-W01")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-W53", "2027-W01"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("missingPeriods(weekly year rollover) = %v, want %v", got, want)
+		t.Errorf("MissingPeriods(weekly year rollover) = %v, want %v", got, want)
 	}
 }
 
 func TestMissingPeriodsMonthly(t *testing.T) {
 	r := &Recurrence{Freq: FreqMonthly}
-	got, err := missingPeriods(r, HorizonMonthly, "2026-10", "2027-01")
+	got, err := MissingPeriods(r, HorizonMonthly, "2026-10", "2027-01")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	want := []string{"2026-11", "2026-12", "2027-01"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("missingPeriods(monthly) = %v, want %v", got, want)
+		t.Errorf("MissingPeriods(monthly) = %v, want %v", got, want)
 	}
 }
 
@@ -220,12 +220,12 @@ func TestMissingPeriodsInterval(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := missingPeriods(c.r, c.horizon, c.latest, c.current)
+			got, err := MissingPeriods(c.r, c.horizon, c.latest, c.current)
 			if err != nil {
 				t.Fatalf("unexpected err: %v", err)
 			}
 			if !reflect.DeepEqual(got, c.want) {
-				t.Errorf("missingPeriods(%+v, %q, %q, %q) = %v, want %v", c.r, c.horizon, c.latest, c.current, got, c.want)
+				t.Errorf("MissingPeriods(%+v, %q, %q, %q) = %v, want %v", c.r, c.horizon, c.latest, c.current, got, c.want)
 			}
 		})
 	}
@@ -241,12 +241,12 @@ func TestComputeAnchor(t *testing.T) {
 		{FreqWeekdays, "2026-07-08", "2026-W28"}, // date -> its ISO week
 	}
 	for _, c := range cases {
-		got, err := computeAnchor(c.freq, c.period)
+		got, err := ComputeAnchor(c.freq, c.period)
 		if err != nil {
-			t.Fatalf("computeAnchor(%q,%q) unexpected err: %v", c.freq, c.period, err)
+			t.Fatalf("ComputeAnchor(%q,%q) unexpected err: %v", c.freq, c.period, err)
 		}
 		if got != c.want {
-			t.Errorf("computeAnchor(%q,%q) = %q, want %q", c.freq, c.period, got, c.want)
+			t.Errorf("ComputeAnchor(%q,%q) = %q, want %q", c.freq, c.period, got, c.want)
 		}
 	}
 }
@@ -262,37 +262,37 @@ func TestEffectiveInterval(t *testing.T) {
 		{"explicit 3", &Recurrence{Freq: FreqDaily, Interval: intPtr(3)}, 3},
 	}
 	for _, c := range cases {
-		if got := effectiveInterval(c.r); got != c.want {
-			t.Errorf("effectiveInterval(%s) = %d, want %d", c.name, got, c.want)
+		if got := EffectiveInterval(c.r); got != c.want {
+			t.Errorf("EffectiveInterval(%s) = %d, want %d", c.name, got, c.want)
 		}
 	}
 }
 
 // TestCloneRecurrenceSurvivesInPlaceUnmarshal reproduces the exact aliasing
-// pitfall PatchTask depends on cloneRecurrence to avoid: encoding/json's
+// pitfall PatchTask depends on CloneRecurrence to avoid: encoding/json's
 // Unmarshal decodes into an already-non-nil destination pointer in place
 // (rather than allocating a new one), so a shallow struct copy of a
 // *Recurrence still shares its Interval memory with the original. A clone
 // must survive a subsequent mutation of the original's Interval unchanged.
 func TestCloneRecurrenceSurvivesInPlaceUnmarshal(t *testing.T) {
 	orig := &Recurrence{Freq: FreqDaily, Interval: intPtr(2)}
-	clone := cloneRecurrence(orig)
+	clone := CloneRecurrence(orig)
 
 	// Simulate what json.Unmarshal(raw, t) does to t.Recurrence.Interval
 	// when the field is already non-nil: overwrite the pointee in place.
 	*orig.Interval = 3
 
-	if effectiveInterval(clone) != 2 {
-		t.Errorf("clone.Interval mutated by aliasing: effectiveInterval(clone) = %d, want 2", effectiveInterval(clone))
+	if EffectiveInterval(clone) != 2 {
+		t.Errorf("clone.Interval mutated by aliasing: EffectiveInterval(clone) = %d, want 2", EffectiveInterval(clone))
 	}
-	if effectiveInterval(orig) != 3 {
-		t.Fatalf("sanity check failed: effectiveInterval(orig) = %d, want 3", effectiveInterval(orig))
+	if EffectiveInterval(orig) != 3 {
+		t.Fatalf("sanity check failed: EffectiveInterval(orig) = %d, want 3", EffectiveInterval(orig))
 	}
 }
 
 func TestCloneRecurrenceNil(t *testing.T) {
-	if got := cloneRecurrence(nil); got != nil {
-		t.Errorf("cloneRecurrence(nil) = %v, want nil", got)
+	if got := CloneRecurrence(nil); got != nil {
+		t.Errorf("CloneRecurrence(nil) = %v, want nil", got)
 	}
 }
 
@@ -311,9 +311,9 @@ func TestDueDateForSpawn(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := dueDateForSpawn(&c.r, c.horizon, c.period)
+			got := DueDateForSpawn(&c.r, c.horizon, c.period)
 			if got != c.want {
-				t.Errorf("dueDateForSpawn(%+v, %q, %q) = %q, want %q", c.r, c.horizon, c.period, got, c.want)
+				t.Errorf("DueDateForSpawn(%+v, %q, %q) = %q, want %q", c.r, c.horizon, c.period, got, c.want)
 			}
 		})
 	}

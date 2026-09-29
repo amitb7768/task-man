@@ -1,0 +1,56 @@
+// Package repo is the Postgres persistence layer: gorm over the schema in
+// migrations/0001_init.up.sql. It is the behavior-identical replacement for
+// server/store.go's Mongo implementation (contract:
+// docs/DESIGN_PG_FSM_MIGRATION.md) — method-for-method, same validation
+// order, same error statuses, same JSON-visible results.
+package repo
+
+import (
+	"fmt"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+// Store is the Postgres-backed store. One instance per process; safe for
+// concurrent use (gorm.DB is a connection pool).
+type Store struct {
+	db *gorm.DB
+}
+
+// New wraps an open gorm handle. Callers run Migrate(dsn) first.
+func New(db *gorm.DB) *Store { return &Store{db: db} }
+
+// Open opens a gorm Postgres handle on dsn. SQL logging is off: the server
+// has its own request log, and every repo error is returned to the caller.
+func Open(dsn string) (*gorm.DB, error) {
+	return gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+}
+
+// APIError carries an HTTP status through the repo boundary. It mirrors
+// server/store.go's apiError; the server's writeErr maps it on the way out.
+type APIError struct {
+	Status int
+	Msg    string
+}
+
+func (e *APIError) Error() string { return e.Msg }
+
+func badRequest(format string, args ...any) error {
+	return &APIError{400, fmt.Sprintf(format, args...)}
+}
+func notFoundErr(format string, args ...any) error {
+	return &APIError{404, fmt.Sprintf(format, args...)}
+}
+func conflictErr(format string, args ...any) error {
+	return &APIError{409, fmt.Sprintf(format, args...)}
+}
+func unauthorizedErr(format string, args ...any) error {
+	return &APIError{401, fmt.Sprintf(format, args...)}
+}
+func forbiddenErr(format string, args ...any) error {
+	return &APIError{403, fmt.Sprintf(format, args...)}
+}

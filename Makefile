@@ -1,4 +1,4 @@
-.PHONY: up down mongo ui run test vet mac-dev mac-build
+.PHONY: up down mongo pg ui run test vet mac-dev mac-build
 
 # whole stack: mongo container + fresh UI build + server on :8484
 up: mongo ui run
@@ -10,6 +10,11 @@ down:
 
 mongo:
 	docker compose up -d
+
+# Postgres target for the Mongo->Postgres migration
+# (docs/DESIGN_PG_FSM_MIGRATION.md). Not part of `up` yet.
+pg:
+	docker compose up -d postgres
 
 ui:
 	cd ui && npm ci && npm run build
