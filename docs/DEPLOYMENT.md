@@ -23,7 +23,7 @@ git clone <your-repo-url> taskman && cd taskman
 make mongo                     # start MongoDB (Docker, restart: unless-stopped)
 make ui                        # build the SPA into ui/dist
 ADMIN_EMAIL=you@company.com \
-  go build -o taskman-bin ./server && ./taskman-bin   # or: make run
+  go build -o taskman-bin ./cmd/taskman && ./taskman-bin   # or: make run
 ```
 
 The server listens on `:8484` on **all interfaces**, so it's already reachable across
@@ -81,7 +81,7 @@ email):
 </plist>
 ```
 
-Build the binary first (`go build -o taskman-bin ./server`), then:
+Build the binary first (`go build -o taskman-bin ./cmd/taskman`), then:
 
 ```sh
 launchctl load  ~/Library/LaunchAgents/com.pbhealth.taskman.plist    # start + enable

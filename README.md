@@ -167,10 +167,15 @@ Design decisions, feature contracts, and research live in **`docs/`** — start 
 ## Project layout
 
 ```
-server/     Go backend (single package): HTTP, store, auth, sessions, period/recurrence math
+cmd/taskman/        Go server entry point (config, migrate-at-boot, graceful shutdown)
+internal/httpapi/   HTTP layer: routes, handlers, middleware, auth cookies
+internal/service/   business flows: tasks, views, notes, summary, teams, members, auth, FSM wiring
+internal/repo/      Postgres infra: migrations, pool, ids, pure query helpers
+internal/model/     domain types + period/recurrence math
+internal/fsm/       task state machine engine (copied from ipd)
 ui/         React + TS SPA; build output (ui/dist) is served by the Go binary
 src-tauri/  macOS desktop wrapper (Tauri v2) — thin client, optional
 docs/       Design contracts, research notes, and DEPLOYMENT.md
-docker-compose.yml   MongoDB (mongo:7, named volume)
-Makefile    up / down / mongo / ui / run / test / vet / mac-dev / mac-build
+docker-compose.yml   Postgres 16 (the server DB) + legacy MongoDB until the P4 cutover
+Makefile    up / down / pg / mongo / ui / run / build / test / vet / mac-dev / mac-build
 ```

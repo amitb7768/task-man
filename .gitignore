@@ -3,10 +3,10 @@ node_modules/
 ui/dist/
 ui/dist-ssr/
 
-# Go compiled binaries (the server binary is built locally, never committed)
-taskman
-taskman-bin
-server/taskman
+# Go compiled binaries (the server binary is built locally, never committed).
+# Root-anchored: a bare `taskman` would also ignore the cmd/taskman/ source dir.
+/taskman
+/taskman-bin
 
 # Rust / Tauri build output is also covered by src-tauri/.gitignore
 src-tauri/target/

@@ -7,5 +7,19 @@ services:
     volumes:
       - taskman-mongo:/data/db
 
+  # The server's database (docs/DESIGN_PG_FSM_MIGRATION.md); `make up` /
+  # `make pg` bring it up. The mongo service above is legacy, kept until the
+  # P4 data migration retires it.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - taskman-pgdata:/var/lib/postgresql/data
+
 volumes:
   taskman-mongo:
+  taskman-pgdata:

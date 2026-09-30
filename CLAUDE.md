@@ -1,6 +1,6 @@
 # taskman — instructions for Claude Code
 
-Standalone task-manager app (Go + React + Mongo) for a small team on a LAN.
+Standalone task-manager app (Go + React + Postgres) for a small team on a LAN.
 It lives under `~/Downloads/pbh` for convenience only — the pbh workspace rules
 (clusters, graphify, delegation, branch policy) do NOT apply here. Treat this
 directory as its own project.
@@ -9,17 +9,28 @@ directory as its own project.
 
 | Path | What | Deeper context |
 |---|---|---|
-| `server/` | Go backend, flat `package main`, stdlib net/http, serves SPA + JSON API on :8484 | `server/CLAUDE.md` |
+| `cmd/taskman/` | server entry: env config, migrate-at-boot, admin seed, `http.Server` on :8484 + SIGINT/SIGTERM graceful shutdown; serves CWD-relative `ui/dist` (run from repo root) | |
+| `internal/httpapi/` | HTTP layer: routes, thin handlers, middleware chain, auth cookies/backoff | `internal/httpapi/CLAUDE.md` |
+| `internal/service/` | business flows + authz + task FSM wiring (the only caller of `internal/fsm`) | `internal/service/CLAUDE.md` |
+| `internal/repo/` | Postgres infra only: `Migrate` (embedded `migrations/`), `Open`, `NewID`, pure query helpers | |
+| `internal/model/` | domain types + period/recurrence math (pure) | |
+| `internal/fsm/` | task state-machine engine copied from ipd — don't edit (README has provenance) | `docs/DESIGN_PG_FSM_MIGRATION.md` |
 | `ui/` | React 19 + TypeScript + Vite SPA | `ui/CLAUDE.md` |
 | `src-tauri/` | macOS thin-client wrapper (Tauri v2) — loads the SPA from the server URL, runs no server itself | `docs/MACAPP_PLAN.md` |
 | `docs/` | per-feature design contracts (`DESIGN*.md`, `*_FEATURES.md`), research notes, `DEPLOYMENT.md` | `docs/AUTH_FEATURES.md` has the endpoint×role matrix |
 | `PROGRESS.md` | session-by-session build log — read the tail for latest state | |
 
+Imports flow one way: `cmd → httpapi + service + repo(Open/Migrate)`,
+`httpapi → service + model`, `service → repo + model + fsm`.
+
 ## Commands
 
-- `make up` / `make down` — Mongo (Docker) + build UI + server on :8484
-- `make mongo` / `make ui` / `make run` — the individual pieces
-- `make test` (`go test ./...` — needs Mongo up) / `make vet`
+- `make up` / `make down` — Postgres (Docker) + build UI + server on :8484
+- `make pg` / `make ui` / `make run` / `make build` (→ `taskman-bin`) — the pieces
+- `make test` (`go test ./...` — needs `make pg` up; PG tests skip without
+  `TASKMAN_TEST_PG_DSN`, each migrates + drops its own scratch schema) / `make vet`
+- Server needs `TASKMAN_PG_DSN` (refuses to start without it). `make mongo`
+  is legacy until the P4 Mongo→PG cutover.
 - `cd ui && npm run build` — typecheck + build SPA. The Go server serves
   `ui/dist` fresh from disk per request: rebuild + browser refresh, no server
   restart.
