@@ -94,7 +94,7 @@ func TestTaskBoardVisibilityArms(t *testing.T) {
 	mk("other-team-noise", "todo", "", tkThisWeek(), nil)
 	tkExec(t, e.s, "UPDATE tasks SET team_id = ? WHERE title = 'other-team-noise'", e.otherTeam)
 
-	b, err := e.s.TeamBoard(e.asAlice, e.team)
+	b, err := e.s.TeamBoard(e.asAlice, e.team, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,16 +111,16 @@ func TestTaskBoardVisibilityArms(t *testing.T) {
 	if len(un) != 1 || un[0] != openUndatedNow {
 		t.Fatalf("unassigned: %v", un)
 	}
-	_, err = e.s.TeamBoard(e.asAlice, e.otherTeam)
+	_, err = e.s.TeamBoard(e.asAlice, e.otherTeam, nil)
 	tkWantErr(t, err, 403, "not a member of that team")
-	_, err = e.s.TeamBoard(e.asAdmin, "nope")
+	_, err = e.s.TeamBoard(e.asAdmin, "nope", nil)
 	tkWantErr(t, err, 404, "team not found")
 
 	week, roll, err := e.s.TeamRollover(e.asAdmin, e.team)
 	if err != nil || week != tkThisWeek() || len(roll) != 1 || roll[0].ID != openUndatedOld {
 		t.Fatalf("rollover: %v %v", tkIDs(roll), err)
 	}
-	hist, more, err := e.s.TeamHistory(e.asAlice, e.team, 0, 0)
+	hist, more, err := e.s.TeamHistory(e.asAlice, e.team, 0, 0, nil)
 	if err != nil || more || len(hist) != 1 || hist[0].ID != doneOld || hist[0].Activity != nil {
 		t.Fatalf("history: %v more=%v err=%v", tkIDs(hist), more, err)
 	}
@@ -205,7 +205,7 @@ func TestTaskNotesAuthorRules(t *testing.T) {
 		t.Fatalf("delete must remove only the note and bump updatedAt: %+v", after.Activity)
 	}
 	// List reads never carry activity; detail does.
-	day, _, _ := e.s.ViewDay(e.asAlice, tkToday())
+	day, _, _ := e.s.ViewDay(e.asAlice, tkToday(), nil)
 	srch, _ := e.s.Search(e.asAlice, model.SearchParams{Q: "n"})
 	for _, x := range append(day, srch...) {
 		if x.Activity != nil {
@@ -294,7 +294,7 @@ func TestTaskBacklogPaths(t *testing.T) {
 	_, err = e.s.CreateTask(e.asAlice, &model.Task{Title: "x", Horizon: model.HorizonBacklog, TeamID: tkStr(e.team)})
 	tkWantErr(t, err, 400, "backlog tasks are personal")
 
-	bl, err := e.s.Backlog(e.asAlice)
+	bl, err := e.s.Backlog(e.asAlice, nil)
 	if ids := tkIDs(bl); err != nil || len(ids) != 2 || ids[0] != second.ID || ids[1] != first.ID {
 		t.Fatalf("Backlog newest-first, own only: %v %v", ids, err)
 	}

@@ -5,6 +5,7 @@ import { formatWeekLabel } from "../period";
 import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
 import CompletedFold, { isCompletedStatus } from "../components/CompletedFold";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import "../styles/planning.css";
 
 function activeOnly(tasks: TaskView[]): TaskView[] {
@@ -32,16 +33,17 @@ export default function MonthView({ month, reloadToken }: MonthViewProps) {
   const [data, setData] = useState<MonthViewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .monthView(month)
+      .monthView(month, tags)
       .then(setData)
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   }
 
-  useEffect(reload, [month, reloadToken]);
+  useEffect(reload, [month, reloadToken, tags]);
 
   // "Active only" per week drives which week sections render at all — a
   // week whose tasks are all completed shouldn't leave a header with an
@@ -60,6 +62,7 @@ export default function MonthView({ month, reloadToken }: MonthViewProps) {
 
   return (
     <div className="pl-view">
+      <TagFilter />
       {error && <div className="error">{error}</div>}
 
       {data && (
@@ -71,7 +74,18 @@ export default function MonthView({ month, reloadToken }: MonthViewProps) {
             <span className="pl-rule" aria-hidden="true" />
           </div>
           {activeOnly(data.tasks).length === 0 ? (
-            <div className="pl-empty">No monthly tasks.</div>
+            <div className="pl-empty">
+              {tags.length > 0 ? (
+                <>
+                  No tasks match the tag filter ·{" "}
+                  <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                    clear
+                  </button>
+                </>
+              ) : (
+                "No monthly tasks."
+              )}
+            </div>
           ) : (
             <div className="task-list">
               {activeOnly(data.tasks).map((t) => (

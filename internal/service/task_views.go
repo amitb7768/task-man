@@ -7,6 +7,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -76,7 +77,8 @@ func (s *Service) Materialize(ctx context.Context) error {
 				Period:     p,
 				Status:     model.StatusTodo,
 				Priority:   t.Priority,
-				OwnerID:    t.OwnerID, // spawned instances copy ownerId from the series task
+				Tags:       slices.Clone(t.Tags), // instances inherit the series' tags
+				OwnerID:    t.OwnerID,            // spawned instances copy ownerId from the series task
 				TeamID:     t.TeamID,
 				AssigneeID: t.AssigneeID,
 				Recurrence: t.Recurrence,
@@ -102,14 +104,15 @@ func (s *Service) Materialize(ctx context.Context) error {
 
 // ---- views ----
 
-func (s *Service) ViewDay(ctx context.Context, date string) (tasks, weekContext []model.TaskView, err error) {
+func (s *Service) ViewDay(ctx context.Context, date string, tags []string) (tasks, weekContext []model.TaskView, err error) {
 	if err = s.Materialize(ctx); err != nil {
 		return nil, nil, err
 	}
 	if err = model.ValidatePeriod(model.HorizonDaily, date); err != nil {
 		return nil, nil, badRequest("%s", err.Error())
 	}
-	tasks, err = s.findPersonal(ctx, horizonPeriod(model.HorizonDaily, date))
+	tc := tagCond(tags)
+	tasks, err = s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonDaily, date), tc))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -117,18 +120,19 @@ func (s *Service) ViewDay(ctx context.Context, date string) (tasks, weekContext 
 	if err != nil {
 		return nil, nil, badRequest("%s", err.Error())
 	}
-	weekContext, err = s.findPersonal(ctx, horizonPeriod(model.HorizonWeekly, week))
+	weekContext, err = s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonWeekly, week), tc))
 	return tasks, weekContext, err
 }
 
-func (s *Service) ViewWeek(ctx context.Context, week string) (tasks []model.TaskView, days map[string][]model.TaskView, monthContext []model.TaskView, err error) {
+func (s *Service) ViewWeek(ctx context.Context, week string, tags []string) (tasks []model.TaskView, days map[string][]model.TaskView, monthContext []model.TaskView, err error) {
 	if err = s.Materialize(ctx); err != nil {
 		return nil, nil, nil, err
 	}
 	if err = model.ValidatePeriod(model.HorizonWeekly, week); err != nil {
 		return nil, nil, nil, badRequest("%s", err.Error())
 	}
-	tasks, err = s.findPersonal(ctx, horizonPeriod(model.HorizonWeekly, week))
+	tc := tagCond(tags)
+	tasks, err = s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonWeekly, week), tc))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -138,7 +142,7 @@ func (s *Service) ViewWeek(ctx context.Context, week string) (tasks []model.Task
 	}
 	days = map[string][]model.TaskView{}
 	for _, d := range dates {
-		dv, err := s.findPersonal(ctx, horizonPeriod(model.HorizonDaily, d))
+		dv, err := s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonDaily, d), tc))
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -148,18 +152,19 @@ func (s *Service) ViewWeek(ctx context.Context, week string) (tasks []model.Task
 	if err != nil {
 		return nil, nil, nil, badRequest("%s", err.Error())
 	}
-	monthContext, err = s.findPersonal(ctx, horizonPeriod(model.HorizonMonthly, month))
+	monthContext, err = s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonMonthly, month), tc))
 	return tasks, days, monthContext, err
 }
 
-func (s *Service) ViewMonth(ctx context.Context, month string) (tasks []model.TaskView, weeks map[string][]model.TaskView, err error) {
+func (s *Service) ViewMonth(ctx context.Context, month string, tags []string) (tasks []model.TaskView, weeks map[string][]model.TaskView, err error) {
 	if err = s.Materialize(ctx); err != nil {
 		return nil, nil, err
 	}
 	if err = model.ValidatePeriod(model.HorizonMonthly, month); err != nil {
 		return nil, nil, badRequest("%s", err.Error())
 	}
-	tasks, err = s.findPersonal(ctx, horizonPeriod(model.HorizonMonthly, month))
+	tc := tagCond(tags)
+	tasks, err = s.findPersonal(ctx, withCond(horizonPeriod(model.HorizonMonthly, month), tc))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -184,6 +189,7 @@ func (s *Service) ViewMonth(ctx context.Context, month string) (tasks []model.Ta
 		var c taskCond
 		c.and("(horizon = ? AND period = ?) OR (horizon = ? AND period IN ?)",
 			model.HorizonWeekly, w, model.HorizonDaily, monthDates)
+		c.andCond(tc)
 		wv, err := s.findPersonal(ctx, c)
 		if err != nil {
 			return nil, nil, err
@@ -198,9 +204,12 @@ func horizonPeriod(h, p string) taskCond {
 	return *c.and("horizon = ? AND period = ?", h, p)
 }
 
+// withCond returns c AND o (o may be the zero cond).
+func withCond(c, o taskCond) taskCond { return *c.andCond(o) }
+
 // ViewAttention returns overdue + slipped tasks: own personal tasks plus
 // visible team tasks (ADMIN: every team; USER: own teams only).
-func (s *Service) ViewAttention(ctx context.Context) (overdue, slipped []model.TaskView, err error) {
+func (s *Service) ViewAttention(ctx context.Context, tags []string) (overdue, slipped []model.TaskView, err error) {
 	if err = s.Materialize(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -219,6 +228,9 @@ func (s *Service) ViewAttention(ctx context.Context) (overdue, slipped []model.T
 		overdueC.andCond(scope)
 		slippedC.andCond(scope)
 	}
+	tc := tagCond(tags)
+	overdueC.andCond(tc)
+	slippedC.andCond(tc)
 	overdue, err = s.findViews(ctx, overdueC)
 	if err != nil {
 		return nil, nil, err
@@ -271,6 +283,7 @@ func (s *Service) Search(ctx context.Context, p model.SearchParams) ([]model.Tas
 		c.and("due_date IS NOT NULL AND due_date < ? AND status IN ?",
 			model.CurrentPeriod(model.HorizonDaily), openStatuses)
 	}
+	c.andCond(tagCond(p.Tags))
 	if u := model.UserFromContext(ctx); u != nil {
 		c.andCond(taskScope(u))
 	}
@@ -317,7 +330,7 @@ func teamByID(db *gorm.DB, id string) (*model.Team, error) {
 // TeamBoard returns a team's board. USER callers must belong to the team;
 // ADMIN may view any. Visibility is scoped to the current week
 // (boardVisibility); progress() stays unscoped by design.
-func (s *Service) TeamBoard(ctx context.Context, teamID string) (*model.Board, error) {
+func (s *Service) TeamBoard(ctx context.Context, teamID string, tags []string) (*model.Board, error) {
 	if err := s.Materialize(ctx); err != nil {
 		return nil, err
 	}
@@ -346,6 +359,7 @@ func (s *Service) TeamBoard(ctx context.Context, teamID string) (*model.Board, e
 	var c taskCond
 	c.and("team_id = ?", teamID)
 	c.andCond(visibility)
+	c.andCond(tagCond(tags)) // staleOpen below stays unfiltered: a board-health signal, not a list
 	all, err := s.findViews(ctx, c)
 	if err != nil {
 		return nil, err
@@ -415,7 +429,7 @@ const (
 // TeamHistory returns a team's completed-task history strictly before the
 // current week, newest-first by createdAt, offset/limit paginated; hasMore
 // via one extra row. Scoped like TeamBoard. Activity never loaded.
-func (s *Service) TeamHistory(ctx context.Context, teamID string, offset, limit int) (tasks []model.TaskView, hasMore bool, err error) {
+func (s *Service) TeamHistory(ctx context.Context, teamID string, offset, limit int, tags []string) (tasks []model.TaskView, hasMore bool, err error) {
 	if err = s.Materialize(ctx); err != nil {
 		return nil, false, err
 	}
@@ -440,6 +454,7 @@ func (s *Service) TeamHistory(ctx context.Context, teamID string, offset, limit 
 	c.and("team_id = ?", teamID)
 	c.and("status IN ?", terminalStatuses)
 	c.and("week_of < ?", W)
+	c.andCond(tagCond(tags))
 	rawTasks, err := listTasks(db, c, "created_at DESC, id DESC", offset, limit+1)
 	if err != nil {
 		return nil, false, err

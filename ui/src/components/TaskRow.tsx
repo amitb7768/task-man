@@ -8,7 +8,7 @@ import { useState } from "react";
 import type { Status, TaskView } from "../api";
 import { api, ApiError } from "../api";
 import { addDays, formatCompactDate, isOverdue, today } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { useAuth } from "../auth/AuthContext";
 import StatusControl from "./StatusControl";
 import { showToast } from "./Toast";
@@ -160,6 +160,16 @@ export default function TaskRow({ task, teamName, assigneeAvatar, noDateChip, on
       <div className={`task-row-title${dim ? " dim" : ""}`}>{task.title}</div>
 
       <div className="task-row-meta">
+        {task.tags?.length > 0 && (
+          <span className="row-tags">
+            {task.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="chip tag">
+                {tag}
+              </span>
+            ))}
+            {task.tags.length > 3 && <span className="chip tag more">+{task.tags.length - 3}</span>}
+          </span>
+        )}
         {task.recurrence && (
           <span className="task-row-recur" title={RECUR_LABEL[task.recurrence.freq] ?? "Recurring"}>
             ↻

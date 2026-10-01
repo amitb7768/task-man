@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,6 +65,19 @@ func (c taskCond) sql() string {
 }
 
 func (c taskCond) apply(db *gorm.DB) *gorm.DB { return db.Where(c.sql(), c.args...) }
+
+// tagCond is the tag filter every list read ANDs in (docs/DESIGN_V10_TAGS.md
+// decision #4): a task matches when it carries EVERY requested tag — jsonb
+// containment, served by the tasks_tags GIN index. tags must already be
+// normalised (the handler runs model.NormalizeTags). Empty = zero cond.
+func tagCond(tags []string) taskCond {
+	var c taskCond
+	if len(tags) == 0 {
+		return c
+	}
+	b, _ := json.Marshal(tags) // a []string cannot fail to marshal
+	return *c.and("tags @> ?::jsonb", string(b))
+}
 
 // ---- scoping helpers ----
 
@@ -295,6 +309,11 @@ func (s *Service) validateTaskFields(ctx context.Context, db *gorm.DB, t *model.
 	if !validPriorities[t.Priority] {
 		return badRequest("invalid priority %q", t.Priority)
 	}
+	tags, err := model.NormalizeTags(t.Tags)
+	if err != nil {
+		return badRequest("%s", err.Error())
+	}
+	t.Tags = tags
 
 	// Backlog invariants (docs/DESIGN_V7_BACKLOG.md).
 	if t.Horizon == model.HorizonBacklog {
@@ -555,9 +574,10 @@ func (s *Service) findPersonal(ctx context.Context, c taskCond) ([]model.TaskVie
 
 // Backlog returns the caller's own backlog tasks, newest-first by createdAt
 // (the ascending findViews result, reversed — verbatim).
-func (s *Service) Backlog(ctx context.Context) ([]model.TaskView, error) {
+func (s *Service) Backlog(ctx context.Context, tags []string) ([]model.TaskView, error) {
 	var c taskCond
-	tasks, err := s.findPersonal(ctx, *c.and("horizon = ?", model.HorizonBacklog))
+	c.and("horizon = ?", model.HorizonBacklog)
+	tasks, err := s.findPersonal(ctx, *c.andCond(tagCond(tags)))
 	if err != nil {
 		return nil, err
 	}
@@ -670,6 +690,10 @@ func (s *Service) patchTaskTx(ctx context.Context, tx *gorm.DB, id string, raw [
 	// orig.Activity aliases), then restore orig's below. Activity is
 	// gorm:"-" now, but the response carries it, so the rule still holds.
 	t.Activity = nil
+	// Same hazard for tags: `orig := *t` shares t.Tags' backing array, and
+	// json.Unmarshal decodes a JSON array INTO the existing slice in place —
+	// a tags patch would silently rewrite orig.Tags too. Give t its own copy.
+	t.Tags = slices.Clone(t.Tags)
 	if err := json.Unmarshal(raw, t); err != nil {
 		return nil, badRequest("invalid JSON: %s", err.Error())
 	}
@@ -888,6 +912,15 @@ func (s *Service) RestoreTasks(ctx context.Context, tasks []model.Task) (int, er
 	ordered, err := restoreOrder(tasks)
 	if err != nil {
 		return 0, err
+	}
+	// Restore bypasses validateTaskFields, so normalise tags here: a
+	// hand-crafted payload must not store un-normalised or invalid tags.
+	for i := range ordered {
+		tags, err := model.NormalizeTags(ordered[i].Tags)
+		if err != nil {
+			return 0, badRequest("restore: task %s: %s", ordered[i].ID, err.Error())
+		}
+		ordered[i].Tags = tags
 	}
 	inserted := 0
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

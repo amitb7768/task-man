@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Member, Status, TaskView } from "../api";
 import { api, ApiError } from "../api";
 import { currentWeek, formatWeekRangeUpper } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { dismissToast, showToast } from "../components/Toast";
 import StatusControl from "../components/StatusControl";
 import "../styles/team-rollover.css";

@@ -63,6 +63,9 @@ export interface TaskView {
   // on full-doc reads (GET /api/tasks/{id}); list/board/search endpoints
   // project it away server-side, so it's absent there — never assume presence.
   activity?: ActivityEntry[];
+  // v10 (docs/DESIGN_V10_TAGS.md): normalised free-form tags — always
+  // present on the wire ([] when none).
+  tags: string[];
 }
 
 export interface TaskDetail extends TaskView {
@@ -122,6 +125,7 @@ export interface CreateTaskInput {
   teamId?: string;
   assigneeId?: string;
   recurrence?: Recurrence;
+  tags?: string[];
 }
 
 // Partial update: fields set to null explicitly clear that field server-side;
@@ -144,6 +148,8 @@ export interface UpdateTaskInput {
   // primitive and its undo (docs/DESIGN_V6_WEEK_ROLLOVER.md "Rollover").
   // Never client-cleared — always a valid ISO week key.
   weekOf?: string;
+  // v10: absent = unchanged; null or [] = clear; array = replace-all.
+  tags?: string[] | null;
 }
 
 export interface DayViewResponse {
@@ -204,6 +210,13 @@ export interface SearchParams {
   teamId?: string;
   assigneeId?: string;
   overdue?: boolean;
+  tags?: string[];
+}
+
+// GET /api/tags (docs/DESIGN_V10_TAGS.md "HTTP"): open tasks only, scoped.
+export interface TagCount {
+  tag: string;
+  count: number;
 }
 
 // v9 date-range summary (docs/DESIGN_V9_NOTES_SUMMARY.md "B. Endpoint —
@@ -307,11 +320,16 @@ async function request<T>(path: string, opts?: RequestOpts): Promise<T> {
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
-function qs(params: Record<string, string | undefined>): string {
+// Array values serialise as a repeated key (`tag=a&tag=b`); empty strings
+// and undefined are dropped, both at top level and inside arrays.
+function qs(params: Record<string, string | string[] | undefined>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === "") continue;
-    parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    if (v === undefined) continue;
+    for (const item of Array.isArray(v) ? v : [v]) {
+      if (item === "") continue;
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(item)}`);
+    }
   }
   return parts.length ? `?${parts.join("&")}` : "";
 }
@@ -349,10 +367,12 @@ export const api = {
   summary: (from: string, to: string, scope: SummaryScope) =>
     request<SummaryResponse>(`/summary${qs({ from, to, teamId: scope.teamId, assigneeId: scope.assigneeId })}`),
 
-  dayView: (date: string) => request<DayViewResponse>(`/views/day${qs({ date })}`),
-  weekView: (week: string) => request<WeekViewResponse>(`/views/week${qs({ week })}`),
-  monthView: (month: string) => request<MonthViewResponse>(`/views/month${qs({ month })}`),
-  attentionView: () => request<AttentionViewResponse>("/views/attention"),
+  // v10: every list fetch takes an optional `tags` filter (AND, repeated `tag=`).
+  dayView: (date: string, tags?: string[]) => request<DayViewResponse>(`/views/day${qs({ date, tag: tags })}`),
+  weekView: (week: string, tags?: string[]) => request<WeekViewResponse>(`/views/week${qs({ week, tag: tags })}`),
+  monthView: (month: string, tags?: string[]) =>
+    request<MonthViewResponse>(`/views/month${qs({ month, tag: tags })}`),
+  attentionView: (tags?: string[]) => request<AttentionViewResponse>(`/views/attention${qs({ tag: tags })}`),
   reschedule: (ids: string[]) =>
     request<{ updated: number }>("/tasks/reschedule", {
       method: "POST",
@@ -360,7 +380,7 @@ export const api = {
     }),
   // ADMIN-only (403 for USER) — the caller's own backlog, createdAt desc
   // (docs/DESIGN_V7_BACKLOG.md "Endpoints").
-  backlog: () => request<{ tasks: TaskView[] }>("/backlog"),
+  backlog: (tags?: string[]) => request<{ tasks: TaskView[] }>(`/backlog${qs({ tag: tags })}`),
   search: (params: SearchParams) =>
     request<{ tasks: TaskView[] }>(
       `/search${qs({
@@ -371,6 +391,7 @@ export const api = {
         teamId: params.teamId,
         assigneeId: params.assigneeId,
         overdue: params.overdue ? "true" : undefined,
+        tag: params.tags,
       })}`,
     ),
 
@@ -380,12 +401,18 @@ export const api = {
   updateTeam: (id: string, name: string) =>
     request<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTeam: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
-  teamBoard: (id: string) => request<TeamBoardResponse>(`/teams/${id}/board`),
+  teamBoard: (id: string, tags?: string[]) => request<TeamBoardResponse>(`/teams/${id}/board${qs({ tag: tags })}`),
   // ADMIN-only (server 403s otherwise — docs/DESIGN_V6_WEEK_ROLLOVER.md
   // "Endpoint x role matrix").
   teamRollover: (id: string) => request<RolloverResponse>(`/teams/${id}/rollover`),
-  teamHistory: (id: string, offset: number, limit: number) =>
-    request<HistoryResponse>(`/teams/${id}/history${qs({ offset: String(offset), limit: String(limit) })}`),
+  teamHistory: (id: string, offset: number, limit: number, tags?: string[]) =>
+    request<HistoryResponse>(
+      `/teams/${id}/history${qs({ offset: String(offset), limit: String(limit), tag: tags })}`,
+    ),
+  // v10 known-tags source for the filter bar; teamId narrows to that team.
+  // status "closed" counts done/cancelled tasks (History); default "open".
+  tags: (teamId?: string, status?: "open" | "closed") =>
+    request<{ tags: TagCount[] }>(`/tags${qs({ teamId, status })}`),
 
   listMembers: (teamId?: string) => request<Member[]>(`/members${qs({ teamId })}`),
   createMember: (input: { name: string; email?: string; role?: string; teamIds: string[] }) =>

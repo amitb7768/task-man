@@ -6,6 +6,7 @@ import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
 import ContextStrip from "../components/ContextStrip";
 import CompletedFold, { isCompletedStatus } from "../components/CompletedFold";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import "../styles/planning.css";
 
 function activeOnly(tasks: TaskView[]): TaskView[] {
@@ -33,16 +34,17 @@ export default function WeekView({ week, reloadToken }: WeekViewProps) {
   const [data, setData] = useState<WeekViewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .weekView(week)
+      .weekView(week, tags)
       .then(setData)
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   }
 
-  useEffect(reload, [week, reloadToken]);
+  useEffect(reload, [week, reloadToken, tags]);
 
   // "Active only" per day drives which day sections render at all — a day
   // whose tasks are all completed shouldn't leave a header with an empty
@@ -57,6 +59,7 @@ export default function WeekView({ week, reloadToken }: WeekViewProps) {
 
   return (
     <div className="pl-view">
+      <TagFilter />
       {error && <div className="error">{error}</div>}
 
       {data && (
@@ -68,7 +71,18 @@ export default function WeekView({ week, reloadToken }: WeekViewProps) {
             <span className="pl-rule" aria-hidden="true" />
           </div>
           {activeOnly(data.tasks).length === 0 ? (
-            <div className="pl-empty">No weekly tasks.</div>
+            <div className="pl-empty">
+              {tags.length > 0 ? (
+                <>
+                  No tasks match the tag filter ·{" "}
+                  <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                    clear
+                  </button>
+                </>
+              ) : (
+                "No weekly tasks."
+              )}
+            </div>
           ) : (
             <div className="task-list">
               {activeOnly(data.tasks).map((t) => (

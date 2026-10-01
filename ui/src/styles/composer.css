@@ -698,3 +698,13 @@
   max-width: calc(100vw - 64px);
   z-index: 20;
 }
+
+/* v10 tags (docs/DESIGN_V10_TAGS.md): read-only chips of the #tags parsed
+   from the title at expand time — the chip look itself is .chip.tag in
+   index.css. */
+.composer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 0 6px;
+}

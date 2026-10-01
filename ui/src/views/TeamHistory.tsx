@@ -12,8 +12,9 @@ import { useEffect, useState } from "react";
 import type { Member, TaskView } from "../api";
 import { api, ApiError } from "../api";
 import { formatCompactDate, formatWeekRangeUpper } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import TaskDetail from "../components/TaskDetail";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import "../styles/team-history.css";
 
 const PAGE = 50;
@@ -68,11 +69,12 @@ export default function TeamHistory({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [tags, setTags] = useTagFilter();
 
   function fetchPage(offset: number, limit: number, replace: boolean) {
     setError(null);
     api
-      .teamHistory(teamId, offset, limit)
+      .teamHistory(teamId, offset, limit, tags)
       .then((d) => {
         setTasks((prev) => (replace || !prev ? d.tasks : [...prev, ...d.tasks]));
         setHasMore(d.hasMore);
@@ -86,7 +88,7 @@ export default function TeamHistory({
     setHasMore(false);
     fetchPage(0, PAGE, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId]);
+  }, [teamId, tags]);
 
   function loadMore() {
     if (loadingMore || !tasks) return;
@@ -147,6 +149,10 @@ export default function TeamHistory({
         </div>
       </header>
 
+      <div className="hi-tagfilter">
+        <TagFilter teamId={teamId} status="closed" />
+      </div>
+
       {error && (
         <div className="error" style={{ margin: "0 32px 12px" }}>
           {error}
@@ -183,6 +189,16 @@ export default function TeamHistory({
                         </span>
                         <span className="hi-tick" style={{ background: PRIORITY_COLOR[t.priority] }} />
                         <div className="hi-row-title">{t.title}</div>
+                        {t.tags?.length > 0 && (
+                          <span className="row-tags">
+                            {t.tags.slice(0, 3).map((tag) => (
+                              <span key={tag} className="chip tag">
+                                {tag}
+                              </span>
+                            ))}
+                            {t.tags.length > 3 && <span className="chip tag more">+{t.tags.length - 3}</span>}
+                          </span>
+                        )}
                         <span className="hi-avatar" title={av.title} style={{ background: av.bg, color: av.fg }}>
                           {av.initials}
                         </span>
@@ -218,8 +234,19 @@ export default function TeamHistory({
                   <polyline points="12 7 12 12 15 14" />
                 </svg>
               </div>
-              <div className="hi-empty-title">No history yet</div>
-              <div className="hi-empty-sub">Completed and cancelled tasks will collect here as the team closes work.</div>
+              {tags.length > 0 ? (
+                <div className="hi-empty-sub">
+                  No tasks match the tag filter ·{" "}
+                  <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                    clear
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="hi-empty-title">No history yet</div>
+                  <div className="hi-empty-sub">Completed and cancelled tasks will collect here as the team closes work.</div>
+                </>
+              )}
             </div>
           )}
         </div>

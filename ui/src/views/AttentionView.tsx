@@ -18,9 +18,10 @@ import {
   toISOWeek,
   today,
 } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { useAuth } from "../auth/AuthContext";
 import TaskDetail from "../components/TaskDetail";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import { dismissToast, showToast } from "../components/Toast";
 import "../styles/attention.css";
 
@@ -142,6 +143,16 @@ function AttentionRow({
         <div className="attn-title">{task.title}</div>
         <div className="attn-reason">{reason}</div>
       </div>
+      {task.tags?.length > 0 && (
+        <span className="row-tags">
+          {task.tags.slice(0, 3).map((tag) => (
+            <span key={tag} className="chip tag">
+              {tag}
+            </span>
+          ))}
+          {task.tags.length > 3 && <span className="chip tag more">+{task.tags.length - 3}</span>}
+        </span>
+      )}
       <span className={`attn-chip ${section}`}>{chip}</span>
     </div>
   );
@@ -218,11 +229,12 @@ export default function AttentionView() {
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .attentionView()
+      .attentionView(tags)
       .then((d) => {
         setData(d);
         setSelected((prev) => {
@@ -233,7 +245,7 @@ export default function AttentionView() {
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   }
 
-  useEffect(reload, []);
+  useEffect(reload, [tags]);
 
   const taskById = useMemo(() => {
     const m = new Map<string, TaskView>();
@@ -481,6 +493,10 @@ export default function AttentionView() {
     <div className="attention-view">
       {error && <div className="error">{error}</div>}
 
+      {/* Own row, rendered even when !hasItems so a filter that hides
+          everything can still be cleared (docs/DESIGN_V10_TAGS.md "UI"). */}
+      <TagFilter />
+
       {hasItems && (
         <div className="attention-toolbar">
           <button type="button" className="attn-select-all" onClick={toggleSelectAll}>
@@ -525,8 +541,19 @@ export default function AttentionView() {
               <polyline points="4 12 10 18 20 6" />
             </svg>
           </div>
-          <div className="attention-empty-title">Nothing needs attention</div>
-          <div className="attention-empty-sub">No overdue or slipped tasks. Everything is anchored to a live period.</div>
+          {tags.length > 0 ? (
+            <div className="attention-empty-sub">
+              No tasks match the tag filter ·{" "}
+              <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                clear
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="attention-empty-title">Nothing needs attention</div>
+              <div className="attention-empty-sub">No overdue or slipped tasks. Everything is anchored to a live period.</div>
+            </>
+          )}
         </div>
       )}
 
