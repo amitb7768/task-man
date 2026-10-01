@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { TagCount } from "../api";
 import { api } from "../api";
-import { TAG_FILTER_KEY } from "../tags";
+import { normalizeTag, TAG_FILTER_KEY } from "../tags";
 import { useTasksChangedSubscription } from "../tasksChanged";
 
 function readStored(): string[] {
@@ -21,7 +21,16 @@ function readStored(): string[] {
     const raw = localStorage.getItem(TAG_FILTER_KEY);
     if (!raw) return [];
     const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x !== "") : [];
+    if (!Array.isArray(v)) return [];
+    // Hygiene: normalise like the server, drop invalid/empty, dedupe — a
+    // hand-edited or pre-normalisation value must not 400 every list fetch.
+    const out: string[] = [];
+    for (const x of v) {
+      if (typeof x !== "string") continue;
+      const n = normalizeTag(x);
+      if (n.ok && n.tag !== "" && !out.includes(n.tag)) out.push(n.tag);
+    }
+    return out;
   } catch {
     return [];
   }
@@ -65,22 +74,24 @@ export function useTagFilter(): [string[], (next: string[]) => void] {
 interface TagFilterProps {
   /** Narrows the known-tags list to one team (TeamPage). */
   teamId?: string;
+  /** Known-tags source: open tasks (default) or done/cancelled (History). */
+  status?: "open" | "closed";
 }
 
-export default function TagFilter({ teamId }: TagFilterProps) {
+export default function TagFilter({ teamId, status }: TagFilterProps) {
   const [tags, setTags] = useTagFilter();
   const [known, setKnown] = useState<TagCount[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(() => {
     api
-      .tags(teamId)
+      .tags(teamId, status)
       .then((r) => {
         setKnown(r?.tags ?? []);
         setFailed(false);
       })
       .catch(() => setFailed(true));
-  }, [teamId]);
+  }, [teamId, status]);
 
   useEffect(() => {
     load();
@@ -123,7 +134,7 @@ export default function TagFilter({ teamId }: TagFilterProps) {
           className="tag-pill active"
           aria-pressed={true}
           data-tag={t}
-          title="No open tasks carry this tag — click to remove it from the filter"
+          title={`No ${status === "closed" ? "closed" : "open"} tasks carry this tag — click to remove it from the filter`}
           onClick={() => toggle(t)}
         >
           #{t}

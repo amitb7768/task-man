@@ -67,16 +67,23 @@ export default function QuickAdd({ horizon, horizonLabel, periodLabel, placehold
   async function submit() {
     const p = parseQuickAdd(text);
     if (!p.title) return;
-    setText("");
-    await onCreate({
-      title: p.title,
-      priority: p.priority,
-      dueDate: p.dueDate,
-      assigneeName: p.assigneeName,
-      recurrence: p.recurrence,
-      horizon: p.horizon ?? horizon,
-      tags: p.tags,
-    });
+    // Clear only once onCreate resolves: a failed create keeps the typed
+    // text for correction/retry instead of losing it.
+    try {
+      await onCreate({
+        title: p.title,
+        priority: p.priority,
+        dueDate: p.dueDate,
+        assigneeName: p.assigneeName,
+        recurrence: p.recurrence,
+        horizon: p.horizon ?? horizon,
+        tags: p.tags,
+      });
+    } catch {
+      inputRef.current?.focus();
+      return;
+    }
+    setText((t) => (t === text ? "" : t));
     inputRef.current?.focus();
   }
 

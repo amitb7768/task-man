@@ -461,7 +461,16 @@ func (a *api) listTags(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("teamId"); v != "" {
 		teamID = &v
 	}
-	tags, err := a.store.ListTags(r.Context(), teamID)
+	var closed bool
+	switch r.URL.Query().Get("status") {
+	case "", "open":
+	case "closed":
+		closed = true
+	default:
+		writeErr(w, badRequest("status must be open or closed"))
+		return
+	}
+	tags, err := a.store.ListTags(r.Context(), teamID, closed)
 	if err != nil {
 		writeErr(w, err)
 		return

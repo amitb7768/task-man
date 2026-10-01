@@ -11,14 +11,19 @@ import (
 // caller may see (taskScope — so an ADMIN never sees tag names from another
 // user's personal tasks), with how many such tasks carry it, ordered count
 // desc then tag asc. teamID, when set, narrows to that team's tasks (an
-// unknown team yields an empty list, not a 404). A pure read: Materialize is
-// deliberately not run.
-func (s *Service) ListTags(ctx context.Context, teamID *string) ([]model.TagCount, error) {
+// unknown team yields an empty list, not a 404). closed counts done/cancelled
+// tasks instead of open ones (the History view's filter bar). A pure read:
+// Materialize is deliberately not run.
+func (s *Service) ListTags(ctx context.Context, teamID *string, closed bool) ([]model.TagCount, error) {
 	var c taskCond
 	if u := model.UserFromContext(ctx); u != nil {
 		c.andCond(taskScope(u))
 	}
-	c.and("status IN ?", openStatuses)
+	statuses := openStatuses
+	if closed {
+		statuses = terminalStatuses
+	}
+	c.and("status IN ?", statuses)
 	if teamID != nil {
 		c.and("team_id = ?", *teamID)
 	}

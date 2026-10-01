@@ -12,8 +12,14 @@ React 19 + TypeScript + Vite. **No router library** — navigation is hand-rolle
   notes" activity section), QuickAdd, TaskComposer, CompletedFold, Toast,
   SummaryPanel (date-range summary slide-over, mounted by TeamPage and by
   App for the week tab) + `summaryFormat.ts` (PURE `toCSV`/`toMarkdown`,
-  no React/DOM — covered by `npm test` = `node --test test/`, the only
-  UI test; keep it importable from Node).
+  no React/DOM; keep it importable from Node), `TagFilter.tsx` (v10 tag
+  filter bar + the global `useTagFilter()` hook, localStorage-backed).
+- `src/tags.ts` — PURE tag rules (`normalizeTag`, `TAG_FILTER_KEY`), mirrors
+  the server's `model.NormalizeTags` for client-side preview.
+- `src/tasksChanged.ts` — `notifyTasksChanged()` / subscription: the
+  cross-view "tasks changed, refetch" signal.
+- `npm test` = `node --test test/**/*.test.ts` covers the pure modules only:
+  `test/summaryFormat.test.ts` and `test/tags.test.ts`.
 - `src/api.ts` — the ONLY fetch layer: every endpoint call + all response types
   (`TaskView`, `TeamBoardResponse`, …). New endpoints get added here.
 - `src/period.ts` — all date/week math (`today`, `currentWeek`, `toISOWeek`,

@@ -87,6 +87,8 @@ func TestTagsHTTP(t *testing.T) {
 		if want := `{"tags":[]}`; strings.TrimSpace(string(b)) != want {
 			t.Fatalf("unknown team tags = %s, want %s", b, want)
 		}
+		mustStatus(t, c, "GET", "/api/tags?status=closed", "", http.StatusOK).Body.Close()
+		mustStatus(t, c, "GET", "/api/tags?status=bogus", "", http.StatusBadRequest).Body.Close()
 	})
 
 	t.Run("invalid tag is 400 on every list endpoint", func(t *testing.T) {

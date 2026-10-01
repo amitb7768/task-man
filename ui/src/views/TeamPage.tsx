@@ -410,7 +410,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
         : (board?.members ?? []);
   const showUnassignedGroup = !filterId || filterId === UNASSIGNED;
 
-  const openLabel = `${visibleTasks.filter(isOpenTask).length} open${filterId ? " · filtered" : ""}`;
+  const openLabel = `${visibleTasks.filter(isOpenTask).length} open${filterId || tags.length > 0 ? " · filtered" : ""}`;
 
   function toggleSelect(id: string) {
     // Starting a new selection (0 -> 1) dismisses a lingering undo toast so
@@ -458,6 +458,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
       notifyTasksChanged();
     } catch (e) {
       fail(e);
+      throw e; // QuickAdd keeps the typed text when the create fails
     }
   }
 

@@ -653,7 +653,9 @@ export default function TaskComposer(props: TaskComposerProps) {
       onCreated();
       flashCreated();
       if (createMore) {
+        // tags are parsed from the title, so they go with it
         setTitle("");
+        setTags([]);
         setNotes("");
         setPop(null);
         titleRef.current?.focus();

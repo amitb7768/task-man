@@ -410,7 +410,9 @@ export const api = {
       `/teams/${id}/history${qs({ offset: String(offset), limit: String(limit), tag: tags })}`,
     ),
   // v10 known-tags source for the filter bar; teamId narrows to that team.
-  tags: (teamId?: string) => request<{ tags: TagCount[] }>(`/tags${qs({ teamId })}`),
+  // status "closed" counts done/cancelled tasks (History); default "open".
+  tags: (teamId?: string, status?: "open" | "closed") =>
+    request<{ tags: TagCount[] }>(`/tags${qs({ teamId, status })}`),
 
   listMembers: (teamId?: string) => request<Member[]>(`/members${qs({ teamId })}`),
   createMember: (input: { name: string; email?: string; role?: string; teamIds: string[] }) =>

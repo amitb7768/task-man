@@ -29,6 +29,14 @@ test("length limit counts runes, not UTF-16 units", () => {
   assert.equal(normalizeTag("😀".repeat(31)).ok, false);
 });
 
+test("over-length message matches the server wording", () => {
+  const long = "a".repeat(31);
+  assert.deepEqual(normalizeTag(long), {
+    ok: false,
+    error: `tag "${long}" is longer than 30 characters`,
+  });
+});
+
 test("filter key is stable", () => {
   assert.equal(TAG_FILTER_KEY, "taskman-tagfilter");
 });

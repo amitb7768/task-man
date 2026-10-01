@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"reflect"
 	"slices"
 	"testing"
@@ -208,6 +209,16 @@ func TestTagsPersonalViewFilters(t *testing.T) {
 			t.Fatalf("month week bucket a: unexpected %s", id)
 		}
 	}
+	_, weeks, _ = e.s.ViewMonth(e.asAlice, model.CurrentPeriod(model.HorizonMonthly), []string{"a", "b"})
+	wbucket = tkIDs(weeks[tkThisWeek()])
+	if !tkHas(wbucket, ab) {
+		t.Fatalf("month week bucket a+b: missing %s in %v", ab, wbucket)
+	}
+	for _, id := range []string{a, b, none, wa, wb} {
+		if tkHas(wbucket, id) {
+			t.Fatalf("month week bucket a+b: unexpected %s", id)
+		}
+	}
 
 	bl, err := e.s.Backlog(e.asAlice, []string{"a"})
 	if err != nil {
@@ -345,19 +356,46 @@ func TestTagsListTags(t *testing.T) {
 	}
 	tc := func(tag string, n int) model.TagCount { return model.TagCount{Tag: tag, Count: n} }
 
-	got, err := e.s.ListTags(e.asAlice, nil)
+	got, err := e.s.ListTags(e.asAlice, nil, false)
 	want("alice", got, err, tc("a", 3), tc("secret", 1), tc("team", 1), tc("wip", 1))
-	got, err = e.s.ListTags(e.asBob, nil)
+	got, err = e.s.ListTags(e.asBob, nil, false)
 	want("bob", got, err, tc("a", 2), tc("bobonly", 1), tc("team", 1))
-	got, err = e.s.ListTags(e.asAdmin, nil)
+	got, err = e.s.ListTags(e.asAdmin, nil, false)
 	want("admin (no other user's personal tags)", got, err,
 		tc("a", 1), tc("adminonly", 1), tc("other", 1), tc("team", 1))
-	got, err = e.s.ListTags(e.asAlice, tkStr(e.team))
+	got, err = e.s.ListTags(e.asAlice, tkStr(e.team), false)
 	want("alice teamId", got, err, tc("a", 1), tc("team", 1))
-	got, err = e.s.ListTags(e.asAlice, tkStr(e.otherTeam))
+	got, err = e.s.ListTags(e.asAlice, tkStr(e.otherTeam), false)
 	want("alice foreign team", got, err)
-	got, err = e.s.ListTags(e.asAdmin, tkStr(e.otherTeam))
+	got, err = e.s.ListTags(e.asAdmin, tkStr(e.otherTeam), false)
 	want("admin other team", got, err, tc("other", 1))
-	got, err = e.s.ListTags(e.asAdmin, tkStr("nope"))
+	got, err = e.s.ListTags(e.asAdmin, tkStr("nope"), false)
 	want("unknown team", got, err)
+
+	// closed: done + cancelled only — open-only tags (secret, wip) excluded.
+	got, err = e.s.ListTags(e.asAlice, nil, true)
+	want("alice closed", got, err, tc("closed", 2), tc("a", 1))
+}
+
+func TestTagsDeleteRestoreReplay(t *testing.T) {
+	e := tkSetup(t)
+	root := tkCreate(t, e.asAlice, e.s, "root", tgTags("keep", "me"))
+	kid := tkCreate(t, e.asAlice, e.s, "kid", func(tk *model.Task) {
+		tk.ParentID, tk.Tags = tkStr(root.ID), []string{"child"}
+	})
+	deleted, err := e.s.DeleteTaskCascade(e.asAdmin, root.ID)
+	if err != nil || len(deleted) != 2 {
+		t.Fatalf("delete: n=%d err=%v", len(deleted), err)
+	}
+	// Replay the undo snapshot through JSON, exactly as the client does.
+	raw, _ := json.Marshal(deleted)
+	var payload []model.Task
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.s.RestoreTasks(e.asAdmin, payload); err != nil || n != 2 {
+		t.Fatalf("restore: n=%d err=%v", n, err)
+	}
+	tgWantTags(t, "restored root", tgStored(t, e, root.ID), "keep", "me")
+	tgWantTags(t, "restored kid", tgStored(t, e, kid.ID), "child")
 }

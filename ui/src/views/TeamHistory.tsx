@@ -150,7 +150,7 @@ export default function TeamHistory({
       </header>
 
       <div className="hi-tagfilter">
-        <TagFilter teamId={teamId} />
+        <TagFilter teamId={teamId} status="closed" />
       </div>
 
       {error && (

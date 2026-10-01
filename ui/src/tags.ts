@@ -20,6 +20,7 @@ export function normalizeTag(raw: string): NormalizedTag {
   const tag = raw.trim().toLowerCase();
   if (tag === "") return { ok: true, tag };
   if (/[\s,#]/.test(tag)) return { ok: false, error: `invalid tag ${JSON.stringify(tag)}` };
-  if ([...tag].length > MAX_TAG_LEN) return { ok: false, error: `invalid tag ${JSON.stringify(tag)}` };
+  if ([...tag].length > MAX_TAG_LEN)
+    return { ok: false, error: `tag ${JSON.stringify(tag)} is longer than ${MAX_TAG_LEN} characters` };
   return { ok: true, tag };
 }

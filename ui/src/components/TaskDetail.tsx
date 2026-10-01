@@ -9,7 +9,7 @@
 // so open/close is driven by the parent conditionally mounting us; the exit
 // slide-out is played locally (see requestClose) before we actually call
 // onClose and let the parent unmount us.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ActivityEntry,
   TaskDetail as TaskDetailData,
@@ -135,13 +135,19 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function save(next: string[], clearDraft: boolean) {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
       await onSave(next);
-      if (clearDraft) setDraft("");
+      if (clearDraft) {
+        setDraft("");
+        // Keep typing after Enter/`,`; don't steal focus a blur-add moved away.
+        if (document.activeElement === document.body) inputRef.current?.focus();
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -181,11 +187,11 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
           </span>
         ))}
         <input
+          ref={inputRef}
           className="td-tags-input"
           value={draft}
           placeholder={tags.length ? "Add tag…" : "Add tags…"}
           aria-label="Add tag"
-          disabled={busy}
           onChange={(e) => {
             setDraft(e.target.value);
             if (error) setError(null);
@@ -200,7 +206,8 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
             }
           }}
           onBlur={() => {
-            if (draft.trim()) addPending();
+            // An error is showing → the user is correcting; don't re-submit.
+            if (draft.trim() && !error) addPending();
           }}
         />
       </div>

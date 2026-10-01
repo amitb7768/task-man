@@ -30,6 +30,9 @@ system, no mockup round):
    ADMIN never sees tag names from a USER's personal tasks), open tasks
    only (done/cancelled excluded — the filter bar is a planning tool),
    ordered count desc, tag asc. Optional `teamId` narrows to that team.
+   Optional `status=open|closed` (default `open`, anything else 400):
+   `closed` counts done/cancelled tasks instead, so TeamHistory's bar
+   offers the tags that actually exist in history.
 6. **Filter state is global per browser**: one selected-tag set, persisted
    in localStorage (`taskman-tagfilter`), shared by every view through a
    `useTagFilter()` hook. Switching tabs keeps the filter; a visible
@@ -212,3 +215,9 @@ tag rejected in detail with the server message → `GET /api/tags` counts.
   team board until cleared. The bar is always visible when a filter is on.
 - `staleOpen` on the board and the sidebar attention badge ignore the
   filter.
+- The known-tags bar on Day/Week/Month includes tags that exist only on
+  team tasks. Those views are personal-only, so such a pill yields an empty
+  list — the count shown is the scope-wide open count, not the view's.
+- List fetches are not sequenced: a fast filter toggle can briefly show a
+  stale response until the next change (the same pre-existing pattern as
+  date changes).

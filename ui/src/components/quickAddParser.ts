@@ -118,14 +118,18 @@ export function parseQuickAdd(raw: string, base: string = todayFn()): ParsedQuic
       result.assigneeName = w.slice(1);
       matched = true;
     } else if (w.length > 1 && w[0] === "#") {
-      const h = lw.slice(1);
-      if (HORIZONS.includes(h)) {
-        result.horizon = h as Horizon;
-      } else if (!result.tags.includes(h)) {
-        // Server normalises/validates (an invalid tag 400s with its message).
-        result.tags.push(h);
+      // Trailing sentence punctuation is not part of the word: `#backend,`
+      // → tag backend, `#daily.` → horizon daily. Nothing left → title text.
+      const h = lw.slice(1).replace(/[,.;:!?)]+$/, "");
+      if (h !== "") {
+        if (HORIZONS.includes(h)) {
+          result.horizon = h as Horizon;
+        } else if (!result.tags.includes(h)) {
+          // Server normalises/validates (an invalid tag 400s with its message).
+          result.tags.push(h);
+        }
+        matched = true;
       }
-      matched = true;
     } else if (w.length > 1 && w[0] === "*") {
       const f = lw.slice(1);
       if (RECUR_FREQS.includes(f)) {
