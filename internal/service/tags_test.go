@@ -52,6 +52,7 @@ func tgSet(t *testing.T, label string, vs []model.TaskView, want ...string) {
 
 func TestTagsCreatePatchRestore(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "backend", "ui", "ops", "x", "y", "a", "b", "one", "two", "three", "four", "p", "q", "r")
 
 	v := tkCreate(t, e.asAlice, e.s, "tagged", tgTags("  Backend", "backend", "UI", ""))
 	tgWantTags(t, "create response", v.Tags, "backend", "ui")
@@ -130,6 +131,7 @@ func TestTagsCreatePatchRestore(t *testing.T) {
 
 func TestTagsPersonalViewFilters(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "a", "b")
 	a := tkCreate(t, e.asAlice, e.s, "A", tgTags("a")).ID
 	ab := tkCreate(t, e.asAlice, e.s, "AB", tgTags("b", "a")).ID
 	b := tkCreate(t, e.asAlice, e.s, "B", tgTags("b")).ID
@@ -256,6 +258,7 @@ func TestTagsPersonalViewFilters(t *testing.T) {
 
 func TestTagsTeamFilters(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "a", "b")
 	mk := func(title string, tags ...string) string {
 		return tkCreate(t, e.asAdmin, e.s, title, func(tk *model.Task) {
 			tk.TeamID, tk.Tags = tkStr(e.team), tags
@@ -302,6 +305,7 @@ func TestTagsTeamFilters(t *testing.T) {
 
 func TestTagsMaterializeInherits(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "ritual", "team")
 	head := tkCreate(t, e.asAlice, e.s, "standup", func(tk *model.Task) {
 		tk.Period = tkDaysAgo(2)
 		tk.Recurrence = &model.Recurrence{Freq: model.FreqDaily}
@@ -326,6 +330,7 @@ func TestTagsMaterializeInherits(t *testing.T) {
 
 func TestTagsListTags(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "a", "secret", "closed", "wip", "bobonly", "adminonly", "team", "other", "unused")
 	tkCreate(t, e.asAlice, e.s, "p1", tgTags("a", "secret"))
 	tkCreate(t, e.asAlice, e.s, "p2", tgTags("a"))
 	closed := tkCreate(t, e.asAlice, e.s, "p3", tgTags("closed", "a")).ID
@@ -354,31 +359,47 @@ func TestTagsListTags(t *testing.T) {
 			t.Fatalf("%s: got %+v, want %+v", label, got, want)
 		}
 	}
-	tc := func(tag string, n int) model.TagCount { return model.TagCount{Tag: tag, Count: n} }
+	// v11: every catalog tag, name asc, count 0 included; counts stay
+	// scope-bound. all(...) expands the non-zero counts to the full catalog.
+	catalog := []string{"a", "adminonly", "bobonly", "closed", "other", "secret", "team", "unused", "wip"}
+	all := func(nz map[string]int) []model.TagCount {
+		out := make([]model.TagCount, 0, len(catalog))
+		for _, n := range catalog {
+			out = append(out, model.TagCount{Tag: n, Count: nz[n]})
+		}
+		return out
+	}
 
 	got, err := e.s.ListTags(e.asAlice, nil, false)
-	want("alice", got, err, tc("a", 3), tc("secret", 1), tc("team", 1), tc("wip", 1))
+	want("alice", got, err, all(map[string]int{"a": 3, "secret": 1, "team": 1, "wip": 1})...)
 	got, err = e.s.ListTags(e.asBob, nil, false)
-	want("bob", got, err, tc("a", 2), tc("bobonly", 1), tc("team", 1))
+	want("bob", got, err, all(map[string]int{"a": 2, "bobonly": 1, "team": 1})...)
 	got, err = e.s.ListTags(e.asAdmin, nil, false)
-	want("admin (no other user's personal tags)", got, err,
-		tc("a", 1), tc("adminonly", 1), tc("other", 1), tc("team", 1))
+	want("admin (no other user's personal counts)", got, err,
+		all(map[string]int{"a": 1, "adminonly": 1, "other": 1, "team": 1})...)
 	got, err = e.s.ListTags(e.asAlice, tkStr(e.team), false)
-	want("alice teamId", got, err, tc("a", 1), tc("team", 1))
+	want("alice teamId", got, err, all(map[string]int{"a": 1, "team": 1})...)
 	got, err = e.s.ListTags(e.asAlice, tkStr(e.otherTeam), false)
-	want("alice foreign team", got, err)
+	want("alice foreign team", got, err, all(nil)...)
 	got, err = e.s.ListTags(e.asAdmin, tkStr(e.otherTeam), false)
-	want("admin other team", got, err, tc("other", 1))
+	want("admin other team", got, err, all(map[string]int{"other": 1})...)
 	got, err = e.s.ListTags(e.asAdmin, tkStr("nope"), false)
-	want("unknown team", got, err)
+	want("unknown team", got, err, all(nil)...)
 
-	// closed: done + cancelled only — open-only tags (secret, wip) excluded.
+	// closed: done + cancelled only — open-only tags (secret, wip) count 0.
 	got, err = e.s.ListTags(e.asAlice, nil, true)
-	want("alice closed", got, err, tc("closed", 2), tc("a", 1))
+	want("alice closed", got, err, all(map[string]int{"closed": 2, "a": 1})...)
+
+	// Empty catalog → empty (non-nil handled by the handler's orEmpty).
+	tkExec(t, e.s, "UPDATE tasks SET tags = '[]'::jsonb")
+	tkExec(t, e.s, "DELETE FROM tags")
+	got, err = e.s.ListTags(e.asAlice, nil, false)
+	want("empty catalog", got, err)
 }
 
 func TestTagsDeleteRestoreReplay(t *testing.T) {
 	e := tkSetup(t)
+	tkTags(t, e.s, "keep", "me", "child")
 	root := tkCreate(t, e.asAlice, e.s, "root", tgTags("keep", "me"))
 	kid := tkCreate(t, e.asAlice, e.s, "kid", func(tk *model.Task) {
 		tk.ParentID, tk.Tags = tkStr(root.ID), []string{"child"}

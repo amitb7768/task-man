@@ -71,7 +71,10 @@ PATCH /api/members/{id}  gains {systemRole?, disabled?}              (ADMIN)
 | PATCH assigning backlog→team (v7) | ✓ (flip is ADMIN-only anyway) | 403 (existing flip rule) |
 | POST/PUT/DELETE /api/tasks/{id}/notes[/{noteId}] (v9) | any task within `canAccessTask` (so NOT another user's personal task); edit/delete any entry | any task within `canAccessTask`; edit/delete own entry only (403 otherwise) |
 | GET /api/summary (v9) | `teamId` scope: any team | `teamId` scope: own teams only (403 otherwise); me-scope (no `teamId`) = own personal + assigned-to-me |
-| GET /api/tags (v10) | own personal + all team tasks (open only; optional `teamId` narrows) | own personal + own teams' tasks (open only; optional `teamId` narrows) |
+| GET /api/tags (v10, v11) | every catalog tag (name asc, count ≥ 0); counts over own personal + all team tasks (open, or closed with `status=closed`; optional `teamId` narrows) | every catalog tag (name asc, count ≥ 0); counts over own personal + own teams' tasks (same params) |
+| GET /api/tags/catalog (v11) | ✓ | ✓ (names are global, admin-authored) |
+| POST /api/tags/catalog (v11) | ✓ (201; 400 invalid; 409 duplicate) | 403 |
+| DELETE /api/tags/catalog/{name} (v11) | ✓ (204; 404 unknown; 409 in use by any task) | 403 |
 
 Note (v7): creation with horizon `"backlog"` is not role-blocked server-side
 — a USER doing it via raw API just gets an invisible personal task: it never

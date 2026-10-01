@@ -131,7 +131,19 @@ interface TaskDetailProps {
 // PATCH via onSave; the server normalises and validates, and its 400
 // message (e.g. `invalid tag "a#b"`) is shown inline under the row while the
 // typed text stays in the input for correction.
-function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[]) => Promise<void> }) {
+// v11 (docs/DESIGN_V11_TAG_CATALOG.md "UI"): the input is a catalog picker —
+// a <datalist id="tag-catalog"> of catalog names (already-applied tags
+// filtered out). Free text still submits; a non-catalog name gets the
+// server's 400 `unknown tag "x"` shown inline like any other error.
+function TagsEditor({
+  tags,
+  catalog,
+  onSave,
+}: {
+  tags: string[];
+  catalog: string[];
+  onSave: (next: string[]) => Promise<void>;
+}) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -155,12 +167,12 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
     }
   }
 
-  function addPending() {
-    const fresh = draft
+  function addPending(value = draft) {
+    const fresh = value
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter((t) => t !== "" && !tags.includes(t));
-    if (!draft.trim() || busy) return;
+    if (!value.trim() || busy) return;
     if (fresh.length === 0) {
       setDraft("");
       return;
@@ -190,11 +202,20 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
           ref={inputRef}
           className="td-tags-input"
           value={draft}
-          placeholder={tags.length ? "Add tag…" : "Add tags…"}
+          placeholder="Pick a tag…"
           aria-label="Add tag"
+          list="tag-catalog"
           onChange={(e) => {
-            setDraft(e.target.value);
+            const value = e.target.value;
+            setDraft(value);
             if (error) setError(null);
+            // A pick from the datalist (mouse or keyboard) applies at once,
+            // no Enter needed; so does typing a catalog name exactly.
+            const picked = (e.nativeEvent as InputEvent).inputType === "insertReplacementText";
+            const norm = value.trim().toLowerCase();
+            if (picked || (norm !== "" && catalog.some((c) => c.toLowerCase() === norm))) {
+              addPending(value);
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
@@ -211,6 +232,13 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[])
           }}
         />
       </div>
+      <datalist id="tag-catalog">
+        {catalog
+          .filter((n) => !tags.includes(n))
+          .map((n) => (
+            <option key={n} value={n} />
+          ))}
+      </datalist>
       {error && <div className="td-tags-error">{error}</div>}
     </div>
   );
@@ -228,6 +256,21 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
   const [detail, setDetail] = useState<TaskDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // v11 tag catalog for the TagsEditor picker — fetched once per panel open
+  // (not per subtask navigation). Failure just leaves the datalist empty.
+  const [tagCatalog, setTagCatalog] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .tagCatalog()
+      .then((r) => {
+        if (alive) setTagCatalog((r?.tags ?? []).map((t) => t.name));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [titleDraft, setTitleDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
@@ -759,7 +802,7 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
 
                 <div className="td-row td-row-tags">
                   <span className="td-row-label">Tags</span>
-                  <TagsEditor key={detail.id} tags={detail.tags ?? []} onSave={saveTags} />
+                  <TagsEditor key={detail.id} tags={detail.tags ?? []} catalog={tagCatalog} onSave={saveTags} />
                 </div>
               </div>
 

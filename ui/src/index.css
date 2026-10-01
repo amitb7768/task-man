@@ -828,6 +828,10 @@ button.link {
 .tag-pill.active .tag-pill-count {
   color: var(--accent);
 }
+/* v11: catalog tags with no matching tasks still render; count is muted. */
+.tag-pill-count.zero {
+  opacity: 0.55;
+}
 .tag-filter-clear,
 .tag-empty-clear {
   border: none;

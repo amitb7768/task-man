@@ -10,7 +10,8 @@ business rule or a business error stays here.
 Files: `tasks.go` (create/patch/delete/restore/reschedule, loaders, scope,
 progress), `task_views.go` (Materialize, day/week/month, attention, search,
 team board/rollover/history), `task_notes.go`, `task_summary.go`,
-`fsm.go` (status changes → `internal/fsm`), `teams.go`, `members.go`,
+`fsm.go` (status changes → `internal/fsm`), `tags.go` (tag counts + the
+admin tag catalog; `unknownTag` is the create/patch/restore gate), `teams.go`, `members.go`,
 `sessions.go`, `auth.go` + `auth_password.go`, `seed_admin.go`.
 
 ## Patterns

@@ -45,6 +45,7 @@ func TestTagsHTTP(t *testing.T) {
 		}
 	})
 
+	directTags(t, store, "alpha", "b")
 	mustStatus(t, c, "POST", "/api/tasks", `{"title":"both","horizon":"daily","period":"`+currentPeriod(HorizonDaily)+`","tags":["Alpha","b"]}`, http.StatusCreated).Body.Close()
 	mustStatus(t, c, "POST", "/api/tasks", `{"title":"only-a","horizon":"daily","period":"`+currentPeriod(HorizonDaily)+`","tags":["alpha"]}`, http.StatusCreated).Body.Close()
 	mustStatus(t, c, "POST", "/api/tasks", `{"title":"team-a","horizon":"daily","period":"`+currentPeriod(HorizonDaily)+`","teamId":"`+team.ID+`","tags":["alpha"]}`, http.StatusCreated).Body.Close()
@@ -78,13 +79,13 @@ func TestTagsHTTP(t *testing.T) {
 		resp2 := mustStatus(t, c, "GET", "/api/tags?teamId="+team.ID, "", http.StatusOK)
 		defer resp2.Body.Close()
 		b, _ = io.ReadAll(resp2.Body)
-		if want := `{"tags":[{"tag":"alpha","count":1}]}`; strings.TrimSpace(string(b)) != want {
+		if want := `{"tags":[{"tag":"alpha","count":1},{"tag":"b","count":0}]}`; strings.TrimSpace(string(b)) != want {
 			t.Fatalf("team tags = %s, want %s", b, want)
 		}
 		resp3 := mustStatus(t, c, "GET", "/api/tags?teamId=nope", "", http.StatusOK)
 		defer resp3.Body.Close()
 		b, _ = io.ReadAll(resp3.Body)
-		if want := `{"tags":[]}`; strings.TrimSpace(string(b)) != want {
+		if want := `{"tags":[{"tag":"alpha","count":0},{"tag":"b","count":0}]}`; strings.TrimSpace(string(b)) != want {
 			t.Fatalf("unknown team tags = %s, want %s", b, want)
 		}
 		mustStatus(t, c, "GET", "/api/tags?status=closed", "", http.StatusOK).Body.Close()

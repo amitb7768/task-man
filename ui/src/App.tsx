@@ -30,6 +30,7 @@ import TeamsLanding from "./views/TeamsLanding";
 import TeamPage from "./views/TeamPage";
 import SearchView from "./views/SearchView";
 import BacklogView from "./views/BacklogView";
+import TagsView from "./views/TagsView";
 import { useTasksChangedSubscription } from "./tasksChanged";
 
 // ---------------------------------------------------------------------------
@@ -143,6 +144,12 @@ const NAV_ICON_PATHS: Record<string, ReactElement> = {
       <line x1="9.5" y1="12.5" x2="14.5" y2="12.5" />
     </>
   ),
+  tag: (
+    <>
+      <path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1a1 1 0 0 1 .7.3l7.2 7.2a1 1 0 0 1 0 1.4l-8.1 8.1a1 1 0 0 1-1.4 0l-7.2-7.2a1 1 0 0 1-.3-.7z" />
+      <circle cx="8.2" cy="8.2" r="1.3" />
+    </>
+  ),
 };
 
 function NavIcon({ name }: { name: string }) {
@@ -153,7 +160,7 @@ function NavIcon({ name }: { name: string }) {
   );
 }
 
-type NavKey = "day" | "week" | "month" | "backlog" | "all" | "attention" | "teams" | "search";
+type NavKey = "day" | "week" | "month" | "backlog" | "all" | "attention" | "teams" | "tags" | "search";
 
 interface NavItem {
   key: NavKey;
@@ -185,6 +192,9 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Manage",
     items: [
       { key: "teams", name: "Teams", icon: "teams" },
+      // ADMIN-only (docs/DESIGN_V11_TAG_CATALOG.md) — filtered like backlog;
+      // the server enforces requireAdmin on catalog writes regardless.
+      { key: "tags", name: "Tags", icon: "tag" },
       { key: "search", name: "Search", icon: "search" },
     ],
   },
@@ -379,6 +389,7 @@ export default function App() {
           : "Teams",
       title: "Teams",
     },
+    tags: { eyebrow: "Admin", title: "Tags" },
     search: { eyebrow: "Filter everything", title: "Search" },
   };
   const meta = metaByTab[tab];
@@ -419,7 +430,7 @@ export default function App() {
             <div className="nav-group" key={group.label}>
               {expanded && <div className="nav-group-label">{group.label}</div>}
               {group.items
-                .filter((item) => item.key !== "backlog" || user.systemRole === "ADMIN")
+                .filter((item) => (item.key !== "backlog" && item.key !== "tags") || user.systemRole === "ADMIN")
                 .map((item) => {
                 const active = tab === item.key;
                 const showBadge = item.key === "attention" && !!attentionCount && attentionCount > 0;
@@ -573,6 +584,7 @@ export default function App() {
               {tab === "all" && <AllTasksView />}
               {tab === "attention" && <AttentionView />}
               {tab === "teams" && <TeamsLanding onOpenTeam={setTeamPageId} />}
+              {tab === "tags" && <TagsView />}
               {tab === "search" && <SearchView />}
             </div>
           </div>

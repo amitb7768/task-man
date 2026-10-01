@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -287,8 +288,10 @@ func listTasks(db *gorm.DB, c taskCond, order string, offset, limit int) ([]mode
 // validateTaskFields validates a task's fields and cross-references
 // (parent/team/assignee existence, horizon rules). selfID, when non-nil, is
 // the task's own id (for patch revalidation), used to reject self-parenting.
-// db is s.db or the patch tx.
-func (s *Service) validateTaskFields(ctx context.Context, db *gorm.DB, t *model.Task, selfID *string) error {
+// db is s.db or the patch tx. keepTags are tags the stored row already
+// carries (patch: orig.Tags; create: nil): only tags NOT in it are checked
+// against the catalog, so keeping or removing a tag never fails.
+func (s *Service) validateTaskFields(ctx context.Context, db *gorm.DB, t *model.Task, selfID *string, keepTags []string) error {
 	if strings.TrimSpace(t.Title) == "" {
 		return badRequest("title is required")
 	}
@@ -314,6 +317,19 @@ func (s *Service) validateTaskFields(ctx context.Context, db *gorm.DB, t *model.
 		return badRequest("%s", err.Error())
 	}
 	t.Tags = tags
+	// v11: only catalog tags (docs/DESIGN_V11_TAG_CATALOG.md decision #1),
+	// checked for newly added ones only (an orphan already on the row stays).
+	var added []string
+	for _, tag := range t.Tags {
+		if !slices.Contains(keepTags, tag) {
+			added = append(added, tag)
+		}
+	}
+	if missing, err := unknownTag(db, added); err != nil {
+		return err
+	} else if missing != "" {
+		return badRequest("unknown tag %q", missing)
+	}
 
 	// Backlog invariants (docs/DESIGN_V7_BACKLOG.md).
 	if t.Horizon == model.HorizonBacklog {
@@ -462,7 +478,7 @@ func (s *Service) CreateTask(ctx context.Context, t *model.Task) (*model.TaskVie
 		t.WeekOf = ""
 	}
 
-	if err := s.validateTaskFields(ctx, db, t, nil); err != nil {
+	if err := s.validateTaskFields(ctx, db, t, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -760,7 +776,7 @@ func (s *Service) patchTaskTx(ctx context.Context, tx *gorm.DB, id string, raw [
 		t.WeekOf = model.NullStr(model.ISOWeekString(now))
 	}
 
-	if err := s.validateTaskFields(ctx, tx, t, &id); err != nil {
+	if err := s.validateTaskFields(ctx, tx, t, &id, orig.Tags); err != nil {
 		return nil, err
 	}
 
@@ -926,6 +942,19 @@ func (s *Service) RestoreTasks(ctx context.Context, tasks []model.Task) (int, er
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := validateRestoreRefs(tx, ordered); err != nil {
 			return err
+		}
+		// v11: a restored task may carry only catalog tags. Unknown ones
+		// (deleted from the catalog since the snapshot) are stripped, not
+		// rejected, so Undo never fails permanently.
+		for i := range ordered {
+			kept, dropped, err := splitCatalogTags(tx, ordered[i].Tags)
+			if err != nil {
+				return err
+			}
+			if len(dropped) > 0 {
+				slog.Warn("restore: dropped tags not in the catalog", "task", ordered[i].ID, "tags", dropped)
+				ordered[i].Tags = kept
+			}
 		}
 		for i := range ordered {
 			t := ordered[i]
