@@ -221,3 +221,62 @@ tag rejected in detail with the server message → `GET /api/tags` counts.
 - List fetches are not sequenced: a fast filter toggle can briefly show a
   stale response until the next change (the same pre-existing pattern as
   date changes).
+
+## E2E results (run 2026-10-01, commit d8928d7)
+
+Headless agent-browser against the branch binary on :18485, schema
+`taskman_tags_e2e` (fresh, migrations 0001+0002 applied at boot —
+`schema_migrations.version = 2`, `tags jsonb NOT NULL DEFAULT '[]'` + GIN
+`tasks_tags` present), admin seeded by env, `ui/dist` from this worktree.
+Fixtures: team "Platform", member Uma (login enabled → USER).
+
+**Verdict: PASS — no tags defects found.** 347 requests served, zero 5xx,
+zero panics, zero FSM errors; every 4xx is an intended one (5 tag-validation
+400s on PATCH, 1 on history `?tag=a%20b`, unauthenticated 401s, 2
+pre-existing USER `GET /api/members` 403s from App.tsx's sidebar count —
+not touched by this diff). 27 UI requests carried `tag=`; zero browser
+console errors in either session.
+
+| # | Result | Evidence |
+|---|---|---|
+| 1 | **PASS** | Day composer "Fix login #backend #Urgent" → row chips `backend`,`urgent` (lowercased), title "Fix login". "Standup notes #daily" → daily, `tags: []`; "Morning check #daily #ops" typed in the **Week** composer → `horizon daily` + `tags [ops]` (horizon override intact). `GET /api/tags` → `{"tags":[{"tag":"backend","count":2},{"tag":"urgent","count":2}]}`; later ordering verified count desc / tag asc (`chores 3, home 3, backend 2, …`). Overflow: 5 tags → `backend frontend blurtag +2` (`chip.tag.more`). |
+| 2 | **PASS** | TaskDetail: Enter adds `frontend`; real `,` keydown adds `infra`; × on `urgent` removes; Backspace on empty removes last (`infra`); blur with pending text adds `blurtag`. `a b` → inline `invalid tag "a b"`, text kept in input, task unchanged (server PATCH 400, DB tags unchanged). `Backend` (dup after fold) → no request, no duplicate chip, input cleared. 31 chars → `tag "abcdefghijabcdefghijabcdefghijk" is longer than 30 characters`. |
+| 3 | **PASS** | Second personal task `#docs`; weekly "Plan sprint #planning" → `weekly 2026-W40 [planning]`; monthly "Quarterly review #planning #finance" → `monthly 2026-10`; expanded Month composer shows `div.composer-tags` chips `finance`,`q4` and "Create task" persists them; Backlog composer "Research caching #idea #backend" → `horizon backlog, period "" , [idea, backend]`; team composer → team task `[backend, urgent]`; member-row QuickAdd "Deploy pipeline #infra #weekly" → preview `qa-chip tag:#infra` + horizon chip, created with `assigneeId` Uma, `[infra]` (horizon forced daily — existing DESIGN_V3_TEAMS deviation #3, not a regression). |
+| 4 | **PASS** | Day pill `#backend` → only matching row, request `views/day?date=…&tag=backend`; + `#docs` → `&tag=backend&tag=docs`, AND → "No tasks match the tag filter · clear"; `tag-empty-clear` restores all rows and removes the localStorage key. With `#planning` active the bar is present + active on Day (`pl-view`; today bucket empty-state, week-context bucket filtered), Week, Month (`pl-view`), All tasks (`all-tasks-toolbar-right`), Search (`pl-toolbar`), Backlog (empty-state), Attention (`attention-view`, bar + empty-state though no items), Team board (`tp-tagfilter`, stale pill `#planning 0` shown active + empty-state), History (`hi-tagfilter`); each fetch carried `tag=planning` (`/views/week`, `/views/month`, `/search?status=open`, `/search`, `/backlog`, `/views/attention`, `/teams/{id}/board`). Clear from Search → no active pill on Day/Week/Month/All/Backlog/Attention/Team. Filter survives a full page reload (`taskman-tagfilter=["docs"]`). Attention with real (overdue) items: `#home` keeps both, `#home`+`#docs` → empty-state, clear restores. |
+| 5 | **PASS** (fixture) | `weekOf` is stamped to the current week at create, so history needs a past week: two team tasks completed (one via the board's Mark done, one via PATCH), then `week_of` backdated to `2026-W39` **in the scratch schema** (no clock change). History unfiltered → both; pill `#infra` → only "Old infra job", request `history?offset=0&limit=50&tag=infra`. Curl: `?tag=docs` → docs job, `?tag=Infra&tag=legacy` → normalised match, `?tag=infra&tag=docs` → `[]`, `?tag=a%20b` → 400 `invalid tag "a b"`. |
+| 6 | **PASS** (fixture) | "Water plants *daily #home #chores" → series head `[home, chores]`. Materialize spawns only up to the *current* period (navigating Day to tomorrow spawns nothing, by design), so the head was aged to 2026-09-29 in the scratch schema as in the PG E2E; next view load spawned 09-30 and 10-01, both `["home","chores"]`, same series. PATCHing the 10-01 instance to add `garden` left the head and 09-30 unchanged (no slice aliasing). |
+| 7 | **PASS** | Day row Delete on "Write docs" (`[docs]`) → toast Undo → `DELETE 200` then `POST /api/tasks/restore 200`; same id `63b3964a…`, `tags ["docs"]`, chip back on the row. |
+| 8 | **PASS** | Uma (USER, temp password → forced change) sees only `#infra` (her team) — none of the admin's personal tags. She creates "Private errand #secretuser"; her `/api/tags` lists it. As ADMIN: `GET /api/tags` (curl and in-page fetch) and the Day filter bar have no `secretuser`; `GET /api/search?tag=secretuser` → `{"tasks":[]}`. `?teamId=<Platform>` → `[infra]` only; unknown teamId → `{"tags":[]}`. Done/cancelled excluded: `urgent` and `docs` counts dropped when their tasks completed. |
+| 9 | **PASS** | Server log: 347 requests, 0 × 5xx, 0 panic, 0 fsm. Note the request log prints path only (no query string), so `tag=` was counted from the browser network log instead: 27 requests with `tag=`. |
+| + | PASS | Contract API edges: PATCH `["  Docs ","docs",""]` → `[docs]`; key absent → unchanged; `null` → `[]`; `[]` → `[]`; `a#b`, `a,b` → 400 `invalid tag …`; 21 tags → 400 `too many tags (max 20)`; `search?tag=&tag=DOCS` → blank dropped, `docs` matched. |
+
+**Bugs found:** none in the tags contract.
+
+**Observations (minor UX, not filed as defects — orchestrator's call):**
+1. *History is unreachable from the board while a filter hides every
+   completed-this-week team task.* The only entry point is the "View older"
+   footer inside `CompletedFold`, which returns null when its (filtered)
+   list is empty. Repro: Team board, select a tag no current-week completed
+   team task carries → the fold and footer disappear; the user must clear
+   the filter, open History, then re-select. Pre-existing entry-point
+   design, but the global filter makes it reachable much more often.
+2. *History's pills come from `/api/tags?teamId=` (open tasks only, by
+   decision 5)*, so tags that exist only on completed history rows (e.g.
+   `legacy`, `docs` here) are not offered on the History page itself; they
+   can still be applied from another view (the filter is global).
+
+Driver notes (not app issues): server log has no query strings (use
+`ab network requests`); `ab type` uses insertText, so the `,` keydown path
+needs `ab press ","`; row hover actions replace the meta cluster (chips),
+so `ab click` on Mark done/Delete needs an `ab hover` on the row first
+(otherwise "covered by span.chip.tag"); sidebar "Attention" text carries a
+badge count. Fixtures written directly to the scratch schema: `week_of`
+backdate (2 rows, item 5), recurring head period/anchor backdate (1 row,
+item 6). Schema `taskman_tags_e2e` left in place for the orchestrator to drop.
+Screenshots: `/tmp/tags-1-day-chips.png`, `/tmp/tags-1-overflow.png`,
+`/tmp/tags-2-invalid-tag.png`, `/tmp/tags-3-composer-expanded.png`,
+`/tmp/tags-3-quickadd-preview.png`, `/tmp/tags-4-day-filter-backend.png`,
+`/tmp/tags-4-day-and-empty.png`, `/tmp/tags-4-day-planning.png`,
+`/tmp/tags-4-teamboard-stale.png`, `/tmp/tags-4-attention-empty.png`,
+`/tmp/tags-5-row-hover.png`, `/tmp/tags-5-history-infra.png`,
+`/tmp/tags-6-recurrence-instance.png`, `/tmp/tags-8-user-secret.png`.
