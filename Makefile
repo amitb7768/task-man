@@ -62,7 +62,7 @@ help: ## Show this help message
 start: build ## Build and start the server in the background
 	@if lsof -ti :8484 >/dev/null 2>&1; then echo "✗ already running on :8484 — use make restart"; exit 1; fi
 	@nohup env TASKMAN_PG_DSN='$(TASKMAN_PG_DSN)' ./taskman-bin > server.log 2>&1 & \
-	sleep 1; \
+	for i in $$(seq 1 10); do lsof -ti :8484 >/dev/null 2>&1 && break; sleep 1; done; \
 	if lsof -ti :8484 >/dev/null 2>&1; then echo "✅ started (pid $$(lsof -ti :8484)) — log: server.log"; else echo "✗ failed to start:"; tail -5 server.log; exit 1; fi
 
 stop: ## Stop the server (graceful SIGTERM)
