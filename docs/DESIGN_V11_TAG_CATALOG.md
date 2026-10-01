@@ -242,3 +242,30 @@ Screenshots: `/tmp/catalog-0-seed-orphan.png`,
 `/tmp/catalog-5-delete-409.png`, `/tmp/catalog-5-after-delete-detail.png`,
 `/tmp/catalog-6-user-nav.png`, `/tmp/catalog-6-user-picker.png`,
 `/tmp/catalog-7-temp-selected.png`, `/tmp/catalog-7-temp-dropped.png`.
+
+### Re-check (run 2026-10-01, commit 7866d3a)
+
+Targeted browser re-check of the review fixes only. Binary
+`/tmp/taskman-catalog-e2e` and `ui/dist` both rebuilt 16:27 at 7866d3a
+(previous run: binary 16:16, `ui/dist` 16:08; new bundle
+`index-DsjJmW1x.js`). Port :18485, schema `taskman_catalog_e2e` reused with
+the previous run's data; log `/tmp/taskman-catalog-e2e-2.log`. The admin's
+password had been changed during the previous run and is not recorded, so
+the scratch admin's `password_hash` was reset by SQL to a known bcrypt hash
+(scratch schema only).
+
+**Verdict: PASS on all 6 checks.** B1, B2 and the plural copy are fixed.
+
+| # | Result | Evidence |
+|---|---|---|
+| 1 orphan tag | **PASS** | SQL `tags='["orphanx"]'` on "Admin private". Title rename in detail → PATCH 200 (×2), row Mark done → PATCH 200; DB `status=done`, `tags=["orphanx"]`, chip still shown. Picker `nope` + Enter → PATCH 400, `.td-tags-error` `unknown tag "nope"`, text kept, chips `[orphanx]`. Catalog tag `ops` → PATCH 200, DB `["orphanx","ops"]`. |
+| 2 undo after tag deletion | **PASS** | Created tag `t3`, Day composer `Undo task #t3` (201). Row hover → Delete (DELETE 200, toast), Tags page delete `t3` → 204 at 16:30:55; toast still visible → clicked Undo at 16:31:01 → `POST /api/tasks/restore` 200; DB task back with `tags=[]`; log `WARN restore: dropped tags not in the catalog task=da1d1910… tags=[t3]`. |
+| 3 plural | **PASS** | Tag `solo` on one (completed) task → Tags-page delete → 409 `.tags-list-error` `tag "solo" is in use by 1 task`. Control: `ci/cd` (3 tasks, one private to Uma) → `is in use by 3 tasks`. |
+| 4 tooltip | **PASS** | Enabled delete buttons (`ci/cd`, `solo`) `title="Delete tag (refused if any task, including closed or private ones, still uses it)"`; disabled `ops` keeps `"In use by 1 task"`. |
+| 5 datalist pick | **PASS** | Simulated pick (native value setter + `InputEvent insertReplacementText` `ci/cd`) → PATCH 200 within 1.2 s with the input still focused (no blur, no Enter), chip added, input cleared. Typed `o`,`p`,`s` one char at a time: no add after `o`/`op`, chip `ops` added and input cleared on `s`. |
+| 6 log | **PASS** | 111 lines, 0 × 5xx, 0 panics. 4xx: 401 initial `/me`, PATCH 400 (`nope`), DELETE 409 ×2 (solo, ci/cd) — all intended. |
+
+Screenshots: `/tmp/catalog-r1-nope.png`, `/tmp/catalog-r5-pick.png`,
+`/tmp/catalog-r2-undo.png`, `/tmp/catalog-r3-plural.png`. Schema
+`taskman_catalog_e2e` left in place (now also holds tag `solo` and task
+"Undo task").
