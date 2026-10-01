@@ -750,6 +750,95 @@ button.link {
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
+/* v10 tags (docs/DESIGN_V10_TAGS.md "UI"): row/detail/composer tag chip.
+   Display only — clicking a row chip is NOT a filter action. */
+.chip.tag {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  padding: 2px 7px;
+}
+.chip.tag::before {
+  content: "#";
+  color: var(--text-faint);
+}
+.chip.tag.more::before {
+  content: none;
+}
+.row-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* v10 tag filter bar (components/TagFilter.tsx) — one global selection
+   shared by every view; known tags are toggle pills with a mono count. */
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.tag-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-right: 2px;
+}
+/* Inline placements (AllTasks toolbar-right, Search pl-toolbar) sit in a
+   flex toolbar row — no own bottom margin there. */
+.all-tasks-toolbar-right .tag-filter,
+.pl-toolbar .tag-filter {
+  margin: 0;
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.tag-pill:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.tag-pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tag-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+.tag-pill-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.tag-pill.active .tag-pill-count {
+  color: var(--accent);
+}
+.tag-filter-clear,
+.tag-empty-clear {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .chip.due.overdue {
   color: var(--overdue);
   background: var(--overdue-soft);

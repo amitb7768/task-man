@@ -3,6 +3,7 @@ import type { Horizon, Priority, Status, Team, TaskView } from "../api";
 import { api, ApiError } from "../api";
 import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import "../styles/planning.css";
 
 export default function SearchView() {
@@ -15,6 +16,7 @@ export default function SearchView() {
   const [results, setResults] = useState<TaskView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tags, setTags] = useTagFilter();
 
   useEffect(() => {
     api.listTeams().then(setTeams).catch(() => {});
@@ -35,6 +37,7 @@ export default function SearchView() {
         priority: priority || undefined,
         horizon: horizon || undefined,
         teamId: teamId || undefined,
+        tags,
       })
       .then((r) => setResults(r.tasks))
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
@@ -45,7 +48,7 @@ export default function SearchView() {
     const handle = setTimeout(runSearch, q ? 250 : 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, status, priority, horizon, teamId]);
+  }, [q, status, priority, horizon, teamId, tags]);
 
   return (
     <div className="pl-view">
@@ -91,6 +94,7 @@ export default function SearchView() {
             </option>
           ))}
         </select>
+        <TagFilter />
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -105,7 +109,18 @@ export default function SearchView() {
             <span className="pl-rule" aria-hidden="true" />
           </div>
           {results.length === 0 ? (
-            <div className="pl-empty">No matching tasks.</div>
+            <div className="pl-empty">
+              {tags.length > 0 ? (
+                <>
+                  No tasks match the tag filter ·{" "}
+                  <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                    clear
+                  </button>
+                </>
+              ) : (
+                "No matching tasks."
+              )}
+            </div>
           ) : (
             <div className="task-list">
               {results.map((t) => (

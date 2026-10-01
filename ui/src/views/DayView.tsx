@@ -6,6 +6,7 @@ import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
 import ContextStrip from "../components/ContextStrip";
 import CompletedFold, { isCompletedStatus } from "../components/CompletedFold";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import "../styles/planning.css";
 
 // date/reloadToken are owned by the app shell now: the header's period-nav
@@ -26,16 +27,17 @@ export default function DayView({ date, reloadToken }: DayViewProps) {
   const [data, setData] = useState<DayViewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .dayView(date)
+      .dayView(date, tags)
       .then(setData)
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   }
 
-  useEffect(reload, [date, reloadToken]);
+  useEffect(reload, [date, reloadToken, tags]);
 
   const label = date === today() ? "Today's tasks" : `Tasks for ${formatCompactDate(date)}`;
 
@@ -44,6 +46,7 @@ export default function DayView({ date, reloadToken }: DayViewProps) {
 
   return (
     <div className="pl-view">
+      <TagFilter />
       {error && <div className="error">{error}</div>}
 
       {data && (
@@ -55,7 +58,18 @@ export default function DayView({ date, reloadToken }: DayViewProps) {
             <span className="pl-rule" aria-hidden="true" />
           </div>
           {activeTasks.length === 0 ? (
-            <div className="pl-empty">Nothing planned for this day.</div>
+            <div className="pl-empty">
+              {tags.length > 0 ? (
+                <>
+                  No tasks match the tag filter ·{" "}
+                  <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                    clear
+                  </button>
+                </>
+              ) : (
+                "Nothing planned for this day."
+              )}
+            </div>
           ) : (
             <div className="task-list">
               {activeTasks.map((t) => (

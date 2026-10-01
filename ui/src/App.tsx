@@ -30,28 +30,7 @@ import TeamsLanding from "./views/TeamsLanding";
 import TeamPage from "./views/TeamPage";
 import SearchView from "./views/SearchView";
 import BacklogView from "./views/BacklogView";
-
-// ---------------------------------------------------------------------------
-// Cross-cutting "something changed" signal. TaskRow and TaskComposer call
-// notifyTasksChanged() after every mutation/create so the sidebar Attention
-// badge stays fresh without prop-drilling a refresh callback through every
-// view. See docs/DESIGN_V2_UI.md "Attention badge".
-// ---------------------------------------------------------------------------
-type ChangeListener = () => void;
-const changeListeners = new Set<ChangeListener>();
-
-export function notifyTasksChanged(): void {
-  changeListeners.forEach((l) => l());
-}
-
-function useTasksChangedSubscription(cb: ChangeListener) {
-  useEffect(() => {
-    changeListeners.add(cb);
-    return () => {
-      changeListeners.delete(cb);
-    };
-  }, [cb]);
-}
+import { useTasksChangedSubscription } from "./tasksChanged";
 
 // ---------------------------------------------------------------------------
 // Theme: System / Light / Dark, persisted to localStorage, stamped as

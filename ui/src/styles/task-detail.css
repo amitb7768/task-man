@@ -719,3 +719,60 @@
     width: 100vw;
   }
 }
+
+/* v10 "Tags" row (docs/DESIGN_V10_TAGS.md "UI") — chip look is .chip.tag
+   in index.css; this only lays out the editor. */
+.td-row-tags {
+  align-items: flex-start;
+  padding: 10px 0;
+}
+.td-row-tags .td-row-label {
+  padding-top: 3px;
+}
+.td-tags-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.td-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.td-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding-right: 3px;
+}
+.td-tag-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.td-tag-remove:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.td-tags-input {
+  flex: 1;
+  min-width: 90px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text);
+  padding: 3px 0;
+}
+.td-tags-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--overdue);
+}

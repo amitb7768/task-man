@@ -33,7 +33,7 @@ import {
   today,
   WEEKDAY_LABELS,
 } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { useAuth } from "../auth/AuthContext";
 import { isCompletedStatus } from "./CompletedFold";
 import StatusControl from "./StatusControl";
@@ -123,6 +123,90 @@ interface TaskDetailProps {
   id: string;
   onClose: () => void;
   onChanged: () => void;
+}
+
+// v10 "Tags" row editor (docs/DESIGN_V10_TAGS.md "UI"): chips with × plus a
+// text input — Enter or `,` adds, Backspace on an empty input removes the
+// last chip, blur with pending text adds it. Every change is a replace-all
+// PATCH via onSave; the server normalises and validates, and its 400
+// message (e.g. `invalid tag "a#b"`) is shown inline under the row while the
+// typed text stays in the input for correction.
+function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (next: string[]) => Promise<void> }) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(next: string[], clearDraft: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(next);
+      if (clearDraft) setDraft("");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function addPending() {
+    const fresh = draft
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t !== "" && !tags.includes(t));
+    if (!draft.trim() || busy) return;
+    if (fresh.length === 0) {
+      setDraft("");
+      return;
+    }
+    save([...tags, ...fresh], true);
+  }
+
+  return (
+    <div className="td-tags-wrap">
+      <div className="td-tags">
+        {tags.map((t) => (
+          <span key={t} className="chip tag td-tag">
+            {t}
+            <button
+              type="button"
+              className="td-tag-remove"
+              aria-label={`Remove tag ${t}`}
+              title="Remove tag"
+              disabled={busy}
+              onClick={() => save(tags.filter((x) => x !== t), false)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          className="td-tags-input"
+          value={draft}
+          placeholder={tags.length ? "Add tag…" : "Add tags…"}
+          aria-label="Add tag"
+          disabled={busy}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              addPending();
+            } else if (e.key === "Backspace" && draft === "" && tags.length > 0) {
+              e.preventDefault();
+              save(tags.slice(0, -1), false);
+            }
+          }}
+          onBlur={() => {
+            if (draft.trim()) addPending();
+          }}
+        />
+      </div>
+      {error && <div className="td-tags-error">{error}</div>}
+    </div>
+  );
 }
 
 export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) {
@@ -252,6 +336,22 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
       onSuccess?.();
     } catch (e) {
       fail(e);
+    } finally {
+      setSaveState("idle");
+    }
+  }
+
+  // v10 tags: replace-all PATCH; the server response is the normalised
+  // truth, so it (not the locally-built list) becomes `detail`. Errors
+  // propagate to TagsEditor, which shows the server message inline.
+  async function saveTags(next: string[]) {
+    if (!detail) return;
+    setSaveState("saving");
+    try {
+      const updated = await api.updateTask(detail.id, { tags: next });
+      setDetail((d) => (d ? { ...updated, children: d.children } : d));
+      notifyTasksChanged();
+      onChanged();
     } finally {
       setSaveState("idle");
     }
@@ -648,6 +748,11 @@ export default function TaskDetail({ id, onClose, onChanged }: TaskDetailProps) 
                     <span className="td-horizon-name">{HORIZON_NAME[detail.horizon]}</span>
                     <span className="td-horizon-period">· {horizonPeriodLabel(detail.horizon, detail.period)}</span>
                   </span>
+                </div>
+
+                <div className="td-row td-row-tags">
+                  <span className="td-row-label">Tags</span>
+                  <TagsEditor key={detail.id} tags={detail.tags ?? []} onSave={saveTags} />
                 </div>
               </div>
 

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+
+	"taskman/internal/model"
 )
 
 type api struct {
@@ -68,6 +70,9 @@ func (a *api) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/backlog", requireAdmin(a.backlog))
 
+	// ---- tags (v10) ----
+	mux.HandleFunc("GET /api/tags", requireAuth(a.listTags))
+
 	// ---- teams ----
 	mux.HandleFunc("POST /api/teams", requireAdmin(a.createTeam))
 	mux.HandleFunc("GET /api/teams", requireAuth(a.listTeams))
@@ -110,6 +115,21 @@ func orEmpty[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// queryTags parses the repeatable `tag` query param (docs/DESIGN_V10_TAGS.md):
+// blank values dropped, the rest normalised exactly as stored tags are (so
+// ?tag=Foo matches foo). An invalid tag is a 400. nil = no tag filter.
+func queryTags(r *http.Request) ([]string, error) {
+	raw := r.URL.Query()["tag"]
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	tags, err := model.NormalizeTags(raw)
+	if err != nil {
+		return nil, badRequest("%s", err.Error())
+	}
+	return tags, nil
 }
 
 // ---- tasks ----
@@ -303,7 +323,12 @@ func (a *api) viewDay(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = currentPeriod(HorizonDaily)
 	}
-	tasks, weekCtx, err := a.store.ViewDay(r.Context(), date)
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	tasks, weekCtx, err := a.store.ViewDay(r.Context(), date, tags)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -319,7 +344,12 @@ func (a *api) viewWeek(w http.ResponseWriter, r *http.Request) {
 	if week == "" {
 		week = currentPeriod(HorizonWeekly)
 	}
-	tasks, days, monthCtx, err := a.store.ViewWeek(r.Context(), week)
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	tasks, days, monthCtx, err := a.store.ViewWeek(r.Context(), week, tags)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -340,7 +370,12 @@ func (a *api) viewMonth(w http.ResponseWriter, r *http.Request) {
 	if month == "" {
 		month = currentPeriod(HorizonMonthly)
 	}
-	tasks, weeks, err := a.store.ViewMonth(r.Context(), month)
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	tasks, weeks, err := a.store.ViewMonth(r.Context(), month, tags)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -356,7 +391,12 @@ func (a *api) viewMonth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) viewAttention(w http.ResponseWriter, r *http.Request) {
-	overdue, slipped, err := a.store.ViewAttention(r.Context())
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	overdue, slipped, err := a.store.ViewAttention(r.Context(), tags)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -384,6 +424,12 @@ func (a *api) search(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("assigneeId"); v != "" {
 		p.AssigneeID = &v
 	}
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	p.Tags = tags
 	tasks, err := a.store.Search(r.Context(), p)
 	if err != nil {
 		writeErr(w, err)
@@ -395,12 +441,32 @@ func (a *api) search(w http.ResponseWriter, r *http.Request) {
 // ---- backlog ----
 
 func (a *api) backlog(w http.ResponseWriter, r *http.Request) {
-	tasks, err := a.store.Backlog(r.Context())
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	tasks, err := a.store.Backlog(r.Context(), tags)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": orEmpty(tasks)})
+}
+
+// ---- tags ----
+
+func (a *api) listTags(w http.ResponseWriter, r *http.Request) {
+	var teamID *string
+	if v := r.URL.Query().Get("teamId"); v != "" {
+		teamID = &v
+	}
+	tags, err := a.store.ListTags(r.Context(), teamID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": orEmpty(tags)})
 }
 
 // ---- teams ----
@@ -470,7 +536,12 @@ func (a *api) teamBoard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	board, err := a.store.TeamBoard(r.Context(), id)
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	board, err := a.store.TeamBoard(r.Context(), id, tags)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -519,7 +590,12 @@ func (a *api) teamHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	tasks, hasMore, err := a.store.TeamHistory(r.Context(), id, offset, limit)
+	tags, err := queryTags(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	tasks, hasMore, err := a.store.TeamHistory(r.Context(), id, offset, limit, tags)
 	if err != nil {
 		writeErr(w, err)
 		return

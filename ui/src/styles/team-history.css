@@ -274,3 +274,12 @@
   max-width: 38ch;
   line-height: 1.5;
 }
+
+/* v10 tag filter row between the header and the body (docs/DESIGN_V10_TAGS.md). */
+.hi-tagfilter {
+  flex: none;
+  padding: 12px 32px 0;
+}
+.hi-tagfilter:empty {
+  display: none;
+}

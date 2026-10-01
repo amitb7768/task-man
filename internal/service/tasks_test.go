@@ -309,13 +309,13 @@ func TestTaskScopingAdminCannotSeePersonal(t *testing.T) {
 	_, err = e.s.AddNote(e.asAdmin, p.ID, model.NoteInput{Text: "x"})
 	tkWantErr(t, err, 403, "not allowed")
 	res, _ := e.s.Search(e.asAdmin, model.SearchParams{Q: "private"})
-	overdue, _, _ := e.s.ViewAttention(e.asAdmin)
-	day, _, _ := e.s.ViewDay(e.asAdmin, tkDaysAgo(2))
+	overdue, _, _ := e.s.ViewAttention(e.asAdmin, nil)
+	day, _, _ := e.s.ViewDay(e.asAdmin, tkDaysAgo(2), nil)
 	if len(res)+len(overdue)+len(day) != 0 {
 		t.Fatal("ADMIN must never see another user's personal task")
 	}
 	res, _ = e.s.Search(e.asAlice, model.SearchParams{Q: "private"})
-	overdue, _, _ = e.s.ViewAttention(e.asAlice)
+	overdue, _, _ = e.s.ViewAttention(e.asAlice, nil)
 	if len(res) != 1 || len(overdue) != 1 {
 		t.Fatal("owner must see their own personal task")
 	}

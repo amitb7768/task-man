@@ -33,7 +33,7 @@ func TestProgressGroupedMatchesPerTask(t *testing.T) {
 	}
 
 	// List path: one grouped query for the whole list.
-	views, _, err := e.s.ViewDay(ctx, tkToday())
+	views, _, err := e.s.ViewDay(ctx, tkToday(), nil)
 	if err != nil {
 		t.Fatalf("ViewDay: %v", err)
 	}

@@ -17,10 +17,11 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Member, Status, SummaryScope, SystemRole, TaskView, TeamBoardResponse } from "../api";
 import { api, ApiError } from "../api";
 import { currentWeek, formatDayBadgePeriod, formatWeekRangeUpper, isOverdue, today, weekDates } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { useAuth } from "../auth/AuthContext";
 import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import SummaryPanel from "../components/SummaryPanel";
 import QuickAdd from "../components/QuickAdd";
 import type { QuickAddResult } from "../components/QuickAdd";
@@ -228,6 +229,9 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
   // changes". Rollover is reached via the ADMIN-only banner; History via the
   // completed fold's "View older" footer.
   const [view, setView] = useState<"board" | "rollover" | "history">("board");
+  // v10 global tag filter — applied server-side on the board fetch, so
+  // allTasks/memberGroups below are already filtered (header counts too).
+  const [tags, setTags] = useTagFilter();
 
   const [membersOpen, setMembersOpen] = useState(false);
   const [membersClosing, setMembersClosing] = useState(false);
@@ -252,7 +256,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
   function reload() {
     setError(null);
     api
-      .teamBoard(teamId)
+      .teamBoard(teamId, tags)
       .then((b) => {
         setBoard(b);
         setSelected((prev) => {
@@ -276,7 +280,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
     // fresh inline closure from the parent every render, and depending on it
     // would refire this fetch on every unrelated parent re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId]);
+  }, [teamId, tags]);
 
   useEffect(() => {
     if (board) setRenameDraft(board.team.name);
@@ -446,6 +450,7 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
         priority: result.priority,
         dueDate: result.dueDate,
         recurrence: result.recurrence,
+        tags: result.tags.length ? result.tags : undefined,
         teamId,
         assigneeId,
       });
@@ -866,6 +871,10 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
         ))}
       </div>
 
+      <div className="tp-tagfilter">
+        <TagFilter teamId={teamId} />
+      </div>
+
       <div className="tp-toolbar">
         <div className="tp-toolbar-left">
           <button type="button" className={`tp-group-toggle${grouped ? " active" : ""}`} onClick={() => setGrouped((g) => !g)}>
@@ -954,7 +963,18 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
                 ))}
               </div>
               {overdueRows.length === 0 && scheduledRows.length === 0 && visibleCompleted.length === 0 && (
-                <div className="tp-list-empty">No tasks here yet.</div>
+                <div className="tp-list-empty">
+                  {tags.length > 0 ? (
+                    <>
+                      No tasks match the tag filter ·{" "}
+                      <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                        clear
+                      </button>
+                    </>
+                  ) : (
+                    "No tasks here yet."
+                  )}
+                </div>
               )}
               <CompletedFold
                 tasks={visibleCompleted}

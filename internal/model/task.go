@@ -39,6 +39,12 @@ type Task struct {
 	Status   string  `gorm:"column:status" json:"status"`
 	Priority string  `gorm:"column:priority" json:"priority"`
 
+	// Tags is the task's normalised tag list (docs/DESIGN_V10_TAGS.md):
+	// always present on the wire ([] when empty — Tags.MarshalJSON), stored
+	// as a jsonb array that is never NULL (Tags.Value). Normalised and
+	// validated server-side in validateTaskFields / RestoreTasks.
+	Tags Tags `gorm:"column:tags;type:jsonb" json:"tags"`
+
 	ParentID   *string `gorm:"column:parent_id" json:"parentId,omitempty"`
 	TeamID     *string `gorm:"column:team_id" json:"teamId,omitempty"`
 	AssigneeID *string `gorm:"column:assignee_id" json:"assigneeId,omitempty"`

@@ -225,6 +225,38 @@ func TestRecurrenceNullRoundTrip(t *testing.T) {
 		}
 	})
 
+	t.Run("nil tags persist as jsonb [] (0002_tags)", func(t *testing.T) {
+		task := &model.Task{
+			ID:        "task-nil-tags",
+			Title:     "no tags",
+			Horizon:   model.HorizonDaily,
+			Status:    model.StatusTodo,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if err := gdb.Create(task).Error; err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		var raw string
+		if err := gdb.Raw(`SELECT tags::text FROM tasks WHERE id = ?`, task.ID).Scan(&raw).Error; err != nil {
+			t.Fatalf("select raw tags: %v", err)
+		}
+		if raw != "[]" {
+			t.Fatalf("tasks.tags = %q, want []", raw)
+		}
+		task.ID, task.Tags = "task-tags", model.Tags{"a", "b"}
+		if err := gdb.Create(task).Error; err != nil {
+			t.Fatalf("Create tagged: %v", err)
+		}
+		var got model.Task
+		if err := gdb.First(&got, "id = ?", task.ID).Error; err != nil {
+			t.Fatalf("First: %v", err)
+		}
+		if len(got.Tags) != 2 || got.Tags[0] != "a" || got.Tags[1] != "b" {
+			t.Fatalf("tags round-trip = %#v", got.Tags)
+		}
+	})
+
 	t.Run("task_activity.seq is never sent on insert", func(t *testing.T) {
 		task := &model.Task{
 			ID:        "task-for-activity",

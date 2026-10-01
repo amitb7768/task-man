@@ -9,7 +9,8 @@ import { api, ApiError } from "../api";
 import { currentWeek, isOverdue, today, weekDates } from "../period";
 import TaskRow from "../components/TaskRow";
 import TaskDetail from "../components/TaskDetail";
-import { notifyTasksChanged } from "../App";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
+import { notifyTasksChanged } from "../tasksChanged";
 import "../styles/all-tasks.css";
 
 type GroupBy = "smart" | "priority" | "horizon";
@@ -96,16 +97,17 @@ export default function AllTasksView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("smart");
   const [sortBy, setSortBy] = useState<SortBy>("due");
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .search({ status: "open" })
+      .search({ status: "open", tags })
       .then((r) => setTasks(r.tasks))
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   }
 
-  useEffect(reload, []);
+  useEffect(reload, [tags]);
   useEffect(() => {
     api.listTeams().then(setTeams).catch(() => {});
   }, []);
@@ -160,6 +162,7 @@ export default function AllTasksView() {
           </div>
         </div>
         <div className="all-tasks-toolbar-right">
+          <TagFilter />
           <label className="all-tasks-sort">
             <span className="all-tasks-toolbar-label">Sort</span>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
@@ -179,10 +182,21 @@ export default function AllTasksView() {
               <polyline points="4 12 10 18 20 6" />
             </svg>
           </div>
-          <div className="all-tasks-empty-title">You&rsquo;re all clear</div>
-          <div className="all-tasks-empty-sub">
-            No open tasks across any horizon. Add one from the field above, or enjoy the whitespace.
-          </div>
+          {tags.length > 0 ? (
+            <div className="all-tasks-empty-sub">
+              No tasks match the tag filter ·{" "}
+              <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                clear
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="all-tasks-empty-title">You&rsquo;re all clear</div>
+              <div className="all-tasks-empty-sub">
+                No open tasks across any horizon. Add one from the field above, or enjoy the whitespace.
+              </div>
+            </>
+          )}
         </div>
       )}
 

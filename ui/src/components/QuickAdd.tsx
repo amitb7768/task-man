@@ -17,6 +17,8 @@ export interface QuickAddResult {
   recurrence?: Recurrence;
   /** Effective horizon: the view's default, or the parsed #override. */
   horizon: Horizon;
+  /** v10: parsed #tags (non-horizon #words); [] when none. */
+  tags: string[];
 }
 
 export interface QuickAddProps {
@@ -35,12 +37,13 @@ export interface QuickAddProps {
 // instead); the key only exists to satisfy Record<Horizon, string>.
 const HORIZON_LABEL: Record<Horizon, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", backlog: "Backlog" };
 
-const LEGEND: { token: string; desc: string; kind: "prio" | "due" | "assignee" | "recur" | "horizon" }[] = [
+const LEGEND: { token: string; desc: string; kind: "prio" | "due" | "assignee" | "recur" | "horizon" | "tag" }[] = [
   { token: "!high", desc: "priority", kind: "prio" },
   { token: "^fri", desc: "due date", kind: "due" },
   { token: "@Sam", desc: "assignee", kind: "assignee" },
   { token: "*weekly", desc: "repeat", kind: "recur" },
   { token: "#monthly", desc: "horizon", kind: "horizon" },
+  { token: "#tag", desc: "tag", kind: "tag" },
 ];
 
 const TOK_COLOR: Record<(typeof LEGEND)[number]["kind"], string> = {
@@ -49,6 +52,7 @@ const TOK_COLOR: Record<(typeof LEGEND)[number]["kind"], string> = {
   assignee: "var(--accent)",
   recur: "var(--text-muted)",
   horizon: "var(--accent)",
+  tag: "var(--text-muted)",
 };
 
 export default function QuickAdd({ horizon, horizonLabel, periodLabel, placeholder, onCreate }: QuickAddProps) {
@@ -71,6 +75,7 @@ export default function QuickAdd({ horizon, horizonLabel, periodLabel, placehold
       assigneeName: p.assigneeName,
       recurrence: p.recurrence,
       horizon: p.horizon ?? horizon,
+      tags: p.tags,
     });
     inputRef.current?.focus();
   }
@@ -86,6 +91,7 @@ export default function QuickAdd({ horizon, horizonLabel, periodLabel, placehold
   if (parsed.assigneeName) chips.push({ label: `@ ${parsed.assigneeName}`, className: "qa-chip accent" });
   if (parsed.recurrence) chips.push({ label: `↻ ${parsed.recurrence.freq}`, className: "qa-chip" });
   if (parsed.horizon) chips.push({ label: `# ${parsed.horizon}`, className: "qa-chip accent-strong" });
+  for (const t of parsed.tags) chips.push({ label: `#${t}`, className: "qa-chip tag" });
 
   const showPanel = focused || hasParse;
 

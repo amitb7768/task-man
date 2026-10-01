@@ -18,10 +18,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { Priority, Status, Team, TaskView } from "../api";
 import { api, ApiError } from "../api";
 import { today } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import StatusControl from "../components/StatusControl";
 import TaskComposer from "../components/TaskComposer";
 import TaskDetail from "../components/TaskDetail";
+import TagFilter, { useTagFilter } from "../components/TagFilter";
 import AssignPopover from "../components/AssignPopover";
 import { dismissToast, showToast } from "../components/Toast";
 import CompletedFold, { isCompletedStatus } from "../components/CompletedFold";
@@ -93,11 +94,12 @@ export default function BacklogView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignTarget, setAssignTarget] = useState<string | "bulk" | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tags, setTags] = useTagFilter();
 
   function reload() {
     setError(null);
     api
-      .backlog()
+      .backlog(tags)
       .then((r) => {
         setTasks(r.tasks);
         setSelected((prev) => new Set([...prev].filter((id) => r.tasks.some((t) => t.id === id))));
@@ -105,10 +107,8 @@ export default function BacklogView() {
       .catch((e) => setError(errMsg(e)));
   }
 
-  useEffect(() => {
-    reload();
-    return () => dismissToast();
-  }, []);
+  useEffect(reload, [tags]);
+  useEffect(() => () => dismissToast(), []);
   useEffect(() => {
     api.listTeams().then(setTeams).catch(() => {});
   }, []);
@@ -261,6 +261,7 @@ export default function BacklogView() {
         <TaskComposer context="backlog" onCreated={handleChanged} />
         {tasks && <span className="bl-count">{plural(activeTasks.length, "task")} parked</span>}
       </div>
+      <TagFilter />
 
       {tasks && !hasAny && (
         <div className="bl-empty">
@@ -269,10 +270,21 @@ export default function BacklogView() {
               <polyline points="4 12 10 18 20 6" />
             </svg>
           </div>
-          <div className="bl-empty-title">Nothing parked</div>
-          <div className="bl-empty-sub">
-            Add tasks here to plan later, then assign them to a team when you&rsquo;re ready.
-          </div>
+          {tags.length > 0 ? (
+            <div className="bl-empty-sub">
+              No tasks match the tag filter ·{" "}
+              <button type="button" className="tag-empty-clear" onClick={() => setTags([])}>
+                clear
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="bl-empty-title">Nothing parked</div>
+              <div className="bl-empty-sub">
+                Add tasks here to plan later, then assign them to a team when you&rsquo;re ready.
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -298,6 +310,16 @@ export default function BacklogView() {
                         <StatusControl status={t.status} onChange={(s) => setRowStatus(t.id, s)} />
                         <div className="bl-tick" style={{ background: PRIORITY_COLOR[t.priority] }} />
                         <div className="bl-row-title">{t.title}</div>
+                        {t.tags?.length > 0 && (
+                          <span className="row-tags">
+                            {t.tags.slice(0, 3).map((tag) => (
+                              <span key={tag} className="chip tag">
+                                {tag}
+                              </span>
+                            ))}
+                            {t.tags.length > 3 && <span className="chip tag more">+{t.tags.length - 3}</span>}
+                          </span>
+                        )}
                       </div>
                       <div className="bl-row-actions">
                         <div className="bl-assign-anchor">

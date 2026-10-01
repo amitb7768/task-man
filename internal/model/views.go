@@ -49,6 +49,9 @@ type SearchParams struct {
 	Q, Status, Priority, Horizon string
 	TeamID, AssigneeID           *string
 	Overdue                      bool
+	// Tags: AND filter — a task matches when it carries every tag
+	// (normalised by the handler). Empty = no tag filter.
+	Tags []string
 }
 
 // NoteInput is the client-settable half of a note entry

@@ -43,7 +43,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Horizon, Member, Priority, Recurrence, RecurrenceFreq } from "../api";
 import { api, ApiError } from "../api";
 import { currentMonth, currentWeek, formatShortDayLabel, today, WEEKDAY_LABELS } from "../period";
-import { notifyTasksChanged } from "../App";
+import { notifyTasksChanged } from "../tasksChanged";
 import { parseQuickAdd } from "./quickAddParser";
 import "../styles/composer.css";
 
@@ -307,6 +307,13 @@ function CloseIcon() {
   );
 }
 
+// Union preserving order: existing draft tags first, then fresh ones.
+function mergeTags(existing: string[], fresh: string[]): string[] {
+  const out = [...existing];
+  for (const t of fresh) if (!out.includes(t)) out.push(t);
+  return out;
+}
+
 export default function TaskComposer(props: TaskComposerProps) {
   const { onCreated } = props;
   const isPersonal = props.context === "personal";
@@ -334,6 +341,11 @@ export default function TaskComposer(props: TaskComposerProps) {
   const [due, setDue] = useState("");
   const [priority, setPriority] = useState<Priority>("");
   const [repeat, setRepeat] = useState<RepeatDraft | null>(null);
+  // v10 (docs/DESIGN_V10_TAGS.md "UI"): tags come ONLY from #word tokens in
+  // the title — no pill. Captured at expand time (the title is stripped
+  // then), merged as a union with any fresh tokens on createFromDraft, and
+  // shown read-only under the expanded title.
+  const [tags, setTags] = useState<string[]>([]);
   // Personal context only: an expand-time #override token, remembered for
   // the lifetime of the draft since the expanded card has "No horizon UI"
   // (docs/DESIGN_V31_COMPOSER.md) to re-surface or re-edit it — mirrors how
@@ -419,7 +431,7 @@ export default function TaskComposer(props: TaskComposerProps) {
   // is always undefined there).
   useEffect(() => {
     if (isPersonal) setHorizonOverride(undefined);
-  }, [viewHorizon]);
+  }, [isPersonal, viewHorizon]);
 
   function flashCreated() {
     setJustCreated(true);
@@ -441,6 +453,7 @@ export default function TaskComposer(props: TaskComposerProps) {
     if (priority) n++;
     if (repeat) n++;
     if (notes.trim()) n++;
+    if (tags.length) n++;
     // Personal only: a bare #override with no other field set is still a
     // draft the collapsed fast path must not silently drop (same footgun
     // the other fields guard against) — routes collapsed Enter to
@@ -460,6 +473,7 @@ export default function TaskComposer(props: TaskComposerProps) {
     setDue("");
     setPriority("");
     setRepeat(null);
+    setTags([]);
     setHorizonOverride(undefined);
     setPop(null);
   }
@@ -483,6 +497,7 @@ export default function TaskComposer(props: TaskComposerProps) {
         : r,
     );
     if (isPersonal) setHorizonOverride((h) => parsed.horizon ?? h);
+    setTags((t) => mergeTags(t, parsed.tags));
     setPop(null);
     setExpanded(true);
   }
@@ -536,6 +551,7 @@ export default function TaskComposer(props: TaskComposerProps) {
         assigneeId: assignee,
         recurrence:
           isBacklog || !parsed.recurrence ? undefined : { freq: parsed.recurrence.freq, weekdays: parsed.recurrence.weekdays },
+        tags: parsed.tags.length ? parsed.tags : undefined,
       })
       .then(() => {
         notifyTasksChanged();
@@ -571,6 +587,7 @@ export default function TaskComposer(props: TaskComposerProps) {
     // horizonOverride, same "fresh token beats draft" rule as the other
     // merged fields above.
     const mergedHorizonToken = isPersonal ? (parsed.horizon ?? horizonOverride) : undefined;
+    const mergedTags = mergeTags(tags, parsed.tags);
     const { horizon, period } = isBacklog
       ? { horizon: "backlog" as Horizon, period: "" }
       : horizonAndPeriod(
@@ -591,6 +608,7 @@ export default function TaskComposer(props: TaskComposerProps) {
         teamId: isPersonal || isBacklog ? undefined : teamId,
         assigneeId: mergedAssignee,
         recurrence: isBacklog ? undefined : buildRecurrence(mergedRepeat),
+        tags: mergedTags.length ? mergedTags : undefined,
       })
       .then(() => {
         notifyTasksChanged();
@@ -629,6 +647,7 @@ export default function TaskComposer(props: TaskComposerProps) {
         teamId: isPersonal || isBacklog ? undefined : teamId,
         assigneeId: isPersonal || isBacklog ? undefined : assigneeId,
         recurrence: isBacklog ? undefined : buildRecurrence(repeat),
+        tags: tags.length ? tags : undefined,
       });
       notifyTasksChanged();
       onCreated();
@@ -780,6 +799,15 @@ export default function TaskComposer(props: TaskComposerProps) {
               <CloseIcon />
             </button>
           </div>
+          {tags.length > 0 && (
+            <div className="composer-tags" title="Tags from #words in the title">
+              {tags.map((t) => (
+                <span key={t} className="chip tag">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
           <textarea
             className="composer-notes-input"
             value={notes}

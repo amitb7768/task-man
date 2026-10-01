@@ -1129,3 +1129,12 @@
   margin-top: 8px;
   text-align: center;
 }
+
+/* v10 tag filter: a sibling row under .tp-filter-row (docs/DESIGN_V10_TAGS.md). */
+.tp-tagfilter {
+  flex: none;
+  padding: 12px 32px 0;
+}
+.tp-tagfilter:empty {
+  display: none;
+}

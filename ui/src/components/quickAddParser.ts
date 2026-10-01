@@ -9,6 +9,8 @@
 //   @Name                      assignee (team context only — resolved by the caller)
 //   *daily *weekly *monthly *weekdays   recurrence
 //   #daily #weekly #monthly    horizon override
+//   #word                      tag (any other #word; lowercased — v10,
+//                              docs/DESIGN_V10_TAGS.md: no longer title text)
 import type { Horizon, Priority, RecurrenceFreq } from "../api";
 import { addDays, formatDate, parseDate, today as todayFn } from "../period";
 
@@ -20,6 +22,8 @@ export interface ParsedQuickAdd {
   assigneeName?: string;
   recurrence?: { freq: RecurrenceFreq; weekdays?: number[] };
   horizon?: Horizon;
+  /** v10: every non-horizon #word, lowercased, deduped, in typed order. */
+  tags: string[];
 }
 
 const PRIORITY_MAP: Record<string, Priority> = {
@@ -98,7 +102,7 @@ function isIsoDate(s: string): boolean {
 export function parseQuickAdd(raw: string, base: string = todayFn()): ParsedQuickAdd {
   const words = raw.split(/\s+/).filter(Boolean);
   const titleWords: string[] = [];
-  const result: ParsedQuickAdd = { title: "" };
+  const result: ParsedQuickAdd = { title: "", tags: [] };
 
   for (const w of words) {
     const lw = w.toLowerCase();
@@ -117,8 +121,11 @@ export function parseQuickAdd(raw: string, base: string = todayFn()): ParsedQuic
       const h = lw.slice(1);
       if (HORIZONS.includes(h)) {
         result.horizon = h as Horizon;
-        matched = true;
+      } else if (!result.tags.includes(h)) {
+        // Server normalises/validates (an invalid tag 400s with its message).
+        result.tags.push(h);
       }
+      matched = true;
     } else if (w.length > 1 && w[0] === "*") {
       const f = lw.slice(1);
       if (RECUR_FREQS.includes(f)) {
