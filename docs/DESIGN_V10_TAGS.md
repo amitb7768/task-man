@@ -280,3 +280,25 @@ Screenshots: `/tmp/tags-1-day-chips.png`, `/tmp/tags-1-overflow.png`,
 `/tmp/tags-4-teamboard-stale.png`, `/tmp/tags-4-attention-empty.png`,
 `/tmp/tags-5-row-hover.png`, `/tmp/tags-5-history-infra.png`,
 `/tmp/tags-6-recurrence-instance.png`, `/tmp/tags-8-user-secret.png`.
+
+### Re-check (run 2026-10-01, commit d33a17b)
+
+Review fixes only. Same binary setup on :18485, the same scratch schema
+`taskman_tags_e2e` (data carried over from the run above), headless
+agent-browser. **Verdict: PASS (6/6).** Server log: 93 requests, 0 × 5xx,
+0 panics, 0 fsm. The only 4xx were the intended ones: 2 unauthenticated
+401s, the `status=bogus` 400, the QuickAdd 400 and the `a b` PATCH 400.
+
+| # | Result | Evidence |
+|---|---|---|
+| 1 | **PASS** | Day composer `Ship it #release, now` → `POST 201`, title "Ship it now", `tags [release]`. `Done #daily.` → `POST 201`, horizon daily, `tags []`. |
+| 2 | **PASS** | Grouped board, "Add for Uma…" row, `Too long #abcdefghijklmnopqrstuvwxyz12345` + Enter → `POST /api/tasks 400`, inline `tag "abcdefghijklmnopqrstuvwxyz12345" is longer than 30 characters`, and the input still holds the full typed text. |
+| 3 | **PASS** | The History tag bar lists `#legacy 1` (legacy is on a completed task only and does not appear among the Day/open pills) next to backend/docs/infra/urgent. Request: `GET /api/tags?teamId=…&status=closed`. Clicking `#legacy` → `history?offset=0&limit=50&tag=legacy` → only "Old infra job". `curl /api/tags?status=bogus` → 400 `{"error":"status must be open or closed"}`. `status=closed` → `{backend,docs,infra,legacy,urgent}`. |
+| 4 | **PASS** | TaskDetail "Ship it now": click the tag input, type `foo` + Enter, then `bar` + Enter typed through the keyboard only, with no re-click. `activeElement` stayed `.td-tags-input` and the chips read `release, foo, bar` (2 × PATCH 200). `a b` + Enter → inline `invalid tag "a b"`, text kept, PATCH 400. Blur by clicking Description (focus moved to the TEXTAREA) → PATCH count for the task stayed 3 in both the server log and the browser network log. DB tags `[release, foo, bar]`. |
+| 5 | **PASS** | Flat board, `#infra` filter (the only completed-this-week team task lacks it): the completed fold is gone and a standalone `View older` button shows below the list. Clicking it opens History (`history?…&tag=infra`). Header `tp-open-label` reads "1 open · filtered" with only the tag filter active. |
+| 6 | **PASS** | Create more on. Collapsed `B2 #x` + Shift+Enter → expanded with `composer-tags` chip `x`. Create task → `B2 [x]`; after create the composer stays expanded with no chips. Next `C2 plain` → `tags []`. Note: text typed **inside** the expanded title (`A #x`) is taken literally by design (`create()` comment, "no token re-parsing while expanded") → title "A #x", `tags []`. This behaviour predates the fixes and is not a regression. |
+
+Screenshots: `/tmp/tags-recheck-2-quickadd-400.png`,
+`/tmp/tags-recheck-3-history-legacy.png`, `/tmp/tags-recheck-4-invalid.png`,
+`/tmp/tags-recheck-5-flat-viewolder.png`, `/tmp/tags-recheck-6-after-create.png`.
+New rows in the scratch schema: "Ship it now", "Done", "A #x", "B2", "C2 plain".
