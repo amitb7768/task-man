@@ -998,6 +998,14 @@ export default function TeamPage({ teamId, onBack }: { teamId: string; onBack: (
                   </button>
                 }
               />
+              {/* v10: the fold (and its "View older" footer) vanishes when a
+                  tag filter hides every completed-this-week task — keep the
+                  only entry point into History reachable. */}
+              {tags.length > 0 && visibleCompleted.length === 0 && (
+                <button type="button" className="completed-fold-footer" onClick={() => setView("history")}>
+                  View older <span aria-hidden="true">→</span>
+                </button>
+              )}
             </>
           )}
 
