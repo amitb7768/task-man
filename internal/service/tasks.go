@@ -314,6 +314,12 @@ func (s *Service) validateTaskFields(ctx context.Context, db *gorm.DB, t *model.
 		return badRequest("%s", err.Error())
 	}
 	t.Tags = tags
+	// v11: only catalog tags (docs/DESIGN_V11_TAG_CATALOG.md decision #1).
+	if missing, err := unknownTag(db, t.Tags); err != nil {
+		return err
+	} else if missing != "" {
+		return badRequest("unknown tag %q", missing)
+	}
 
 	// Backlog invariants (docs/DESIGN_V7_BACKLOG.md).
 	if t.Horizon == model.HorizonBacklog {
@@ -926,6 +932,16 @@ func (s *Service) RestoreTasks(ctx context.Context, tasks []model.Task) (int, er
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := validateRestoreRefs(tx, ordered); err != nil {
 			return err
+		}
+		// v11: a restored task may carry only catalog tags, like create/patch.
+		for i := range ordered {
+			missing, err := unknownTag(tx, ordered[i].Tags)
+			if err != nil {
+				return err
+			}
+			if missing != "" {
+				return badRequest("unknown tag %q", missing)
+			}
 		}
 		for i := range ordered {
 			t := ordered[i]

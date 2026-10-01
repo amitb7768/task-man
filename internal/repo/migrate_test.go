@@ -2,11 +2,18 @@ package repo
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-migrate/migrate/v4"
+	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -65,8 +72,8 @@ func withScratchSchema(t *testing.T, dsn, tag string) string {
 	return schema
 }
 
-// wantTables is every table 0001_init.up.sql creates.
-var wantTables = []string{"teams", "members", "member_teams", "tasks", "task_activity", "sessions"}
+// wantTables is every table the migrations create (0001_init + 0003_tag_catalog).
+var wantTables = []string{"teams", "members", "member_teams", "tasks", "task_activity", "sessions", "tags"}
 
 func assertTablesExist(t *testing.T, dsn, schema string) {
 	t.Helper()
@@ -294,4 +301,101 @@ func TestRecurrenceNullRoundTrip(t *testing.T) {
 			t.Errorf("Seq not increasing: %d >= %d", got[0].Seq, got[1].Seq)
 		}
 	})
+}
+
+// migrateTo applies the embedded migrations up to (and including) version.
+func migrateTo(t *testing.T, dsn string, version uint) {
+	t.Helper()
+	db, err := sql.Open("pgx/v5", dsn)
+	if err != nil {
+		t.Fatalf("migrateTo: open: %v", err)
+	}
+	defer db.Close()
+	driver, err := pgxmigrate.WithInstance(db, &pgxmigrate.Config{})
+	if err != nil {
+		t.Fatalf("migrateTo: driver: %v", err)
+	}
+	src, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("migrateTo: source: %v", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "pgx/v5", driver)
+	if err != nil {
+		t.Fatalf("migrateTo: init: %v", err)
+	}
+	defer m.Close()
+	if err := m.Migrate(version); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		t.Fatalf("migrateTo(%d): %v", version, err)
+	}
+}
+
+// TestTagCatalogSeed proves 0003_tag_catalog seeds the catalog from the tags
+// tasks already carry (docs/DESIGN_V11_TAG_CATALOG.md decision #2), so no
+// existing task becomes invalid; and that the seed statement is idempotent.
+func TestTagCatalogSeed(t *testing.T) {
+	base := testDSN(t)
+	schema := withScratchSchema(t, base, "tagseed")
+	dsn := scopedDSN(t, base, schema)
+
+	migrateTo(t, dsn, 2)
+	db, err := sql.Open("pgx/v5", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i, tags := range []string{`["backend","ui"]`, `["ui","ops"]`, `[]`} {
+		if _, err := db.Exec(`INSERT INTO tasks (id, title, horizon, period, status, tags, created_at, updated_at)
+			VALUES ($1, 't', 'daily', '2026-10-01', 'todo', $2::jsonb, now(), now())`, fmt.Sprintf("seed-%d", i), tags); err != nil {
+			t.Fatalf("insert pre-0003 task: %v", err)
+		}
+	}
+
+	if err := Migrate(dsn); err != nil {
+		t.Fatalf("Migrate to head: %v", err)
+	}
+	names := func() []string {
+		t.Helper()
+		rows, err := db.Query(`SELECT name FROM tags ORDER BY name`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, n)
+		}
+		return out
+	}
+	want := []string{"backend", "ops", "ui"}
+	if got := names(); !slices.Equal(got, want) {
+		t.Fatalf("seeded catalog = %v, want %v", got, want)
+	}
+	var nullBy int
+	if err := db.QueryRow(`SELECT count(*) FROM tags WHERE created_by IS NULL`).Scan(&nullBy); err != nil || nullBy != 3 {
+		t.Fatalf("seeded rows created_by NULL: n=%d err=%v", nullBy, err)
+	}
+
+	// Re-running Migrate is a no-op; re-running the seed statement itself
+	// adds nothing and does not error.
+	if err := Migrate(dsn); err != nil {
+		t.Fatalf("Migrate second run: %v", err)
+	}
+	raw, err := migrationsFS.ReadFile("migrations/0003_tag_catalog.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(raw), "INSERT INTO tags")
+	if i < 0 {
+		t.Fatal("seed statement not found in 0003_tag_catalog.up.sql")
+	}
+	if _, err := db.Exec(string(raw[i:])); err != nil {
+		t.Fatalf("seed re-run: %v", err)
+	}
+	if got := names(); !slices.Equal(got, want) {
+		t.Fatalf("catalog after seed re-run = %v, want %v", got, want)
+	}
 }

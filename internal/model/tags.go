@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -98,3 +99,14 @@ type TagCount struct {
 	Tag   string `json:"tag"`
 	Count int    `json:"count"`
 }
+
+// Tag is one row of the admin-managed tag catalog (docs/DESIGN_V11_TAG_CATALOG.md):
+// the only tag names a task may carry. Name is normalised (NormalizeTags).
+type Tag struct {
+	Name      string    `gorm:"column:name;primaryKey" json:"name"`
+	CreatedBy *string   `gorm:"column:created_by" json:"createdBy,omitempty"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"createdAt"`
+}
+
+// TableName implements gorm's Tabler interface.
+func (Tag) TableName() string { return "tags" }

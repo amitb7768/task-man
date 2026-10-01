@@ -103,6 +103,17 @@ func tkWantErr(t *testing.T, err error, status int, msg string) {
 	}
 }
 
+// tkTags seeds the tag catalog (docs/DESIGN_V11_TAG_CATALOG.md) with names
+// (already normalised); a task may only carry catalog tags. Idempotent.
+func tkTags(t *testing.T, s *Service, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := s.db.Exec("INSERT INTO tags (name, created_at) VALUES (?, now()) ON CONFLICT DO NOTHING", n).Error; err != nil {
+			t.Fatalf("seed tag %q: %v", n, err)
+		}
+	}
+}
+
 func tkExec(t *testing.T, s *Service, sql string, args ...any) {
 	t.Helper()
 	if err := s.db.Exec(sql, args...).Error; err != nil {

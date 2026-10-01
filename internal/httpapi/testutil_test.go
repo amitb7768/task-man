@@ -197,6 +197,17 @@ func directTeam(t *testing.T, store *Store, name string) Team {
 	return team
 }
 
+// directTags seeds the tag catalog (docs/DESIGN_V11_TAG_CATALOG.md) with
+// names (already normalised); a task may only carry catalog tags. Idempotent.
+func directTags(t *testing.T, store *Store, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := testDB(t, store).Exec("INSERT INTO tags (name, created_at) VALUES (?, now()) ON CONFLICT DO NOTHING", n).Error; err != nil {
+			t.Fatalf("seed tag %q: %v", n, err)
+		}
+	}
+}
+
 // directTask inserts a task row straight into the scratch schema, bypassing
 // CreateTask's system-managed-field derivation (ownerId/weekOf/timestamps),
 // so tests can seed fixtures with exactly the field values they need — e.g.

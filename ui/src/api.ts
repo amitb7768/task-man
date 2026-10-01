@@ -219,6 +219,14 @@ export interface TagCount {
   count: number;
 }
 
+// v11 tag catalog entry (docs/DESIGN_V11_TAG_CATALOG.md "HTTP"): the
+// admin-curated set of tags a task may carry.
+export interface Tag {
+  name: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
 // v9 date-range summary (docs/DESIGN_V9_NOTES_SUMMARY.md "B. Endpoint —
 // summary"). No teamId -> "me" scope (caller's personal + assigned-to-me).
 export interface SummaryScope {
@@ -413,6 +421,14 @@ export const api = {
   // status "closed" counts done/cancelled tasks (History); default "open".
   tags: (teamId?: string, status?: "open" | "closed") =>
     request<{ tags: TagCount[] }>(`/tags${qs({ teamId, status })}`),
+  // v11 tag catalog (docs/DESIGN_V11_TAG_CATALOG.md). Read: any user;
+  // create/delete: ADMIN (server-enforced). 409 bodies carry a readable
+  // `error` ("already exists" / "in use by N tasks") surfaced via ApiError.
+  tagCatalog: () => request<{ tags: Tag[] }>("/tags/catalog"),
+  createTag: (name: string) =>
+    request<Tag>("/tags/catalog", { method: "POST", body: JSON.stringify({ name }) }),
+  deleteTag: (name: string) =>
+    request<void>(`/tags/catalog/${encodeURIComponent(name)}`, { method: "DELETE" }),
 
   listMembers: (teamId?: string) => request<Member[]>(`/members${qs({ teamId })}`),
   createMember: (input: { name: string; email?: string; role?: string; teamIds: string[] }) =>

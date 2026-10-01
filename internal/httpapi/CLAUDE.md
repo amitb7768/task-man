@@ -14,7 +14,13 @@ Stdlib `net/http` only. No business rules here: handlers decode, call one
   board/history) take a repeatable `?tag=` AND-filter parsed by `queryTags`
   (normalised; invalid → 400). `GET /api/tags?teamId=&status=open|closed` (requireAuth;
   status defaults to open, other values 400) → `{"tags":[{tag,count}]}` —
-  the filter bar's known-tag source (`docs/DESIGN_V10_TAGS.md`).
+  the filter bar's tag source (`docs/DESIGN_V10_TAGS.md`); since v11 it lists
+  every catalog tag, name asc, count ≥ 0. Tag catalog
+  (`docs/DESIGN_V11_TAG_CATALOG.md`): `GET /api/tags/catalog` (requireAuth) →
+  `{"tags":[{name,createdBy?,createdAt}]}`; `POST /api/tags/catalog`
+  `{"name"}` (requireAdmin) → 201 Tag / 400 / 409; `DELETE
+  /api/tags/catalog/{name}` (requireAdmin) → 204 / 404 / 409 in use. Task
+  create/patch/restore reject non-catalog tags (400 `unknown tag "x"`).
 - `middleware.go` — the chain + `requireAuth`/`requireAdmin`; the caller is a
   `*model.CtxUser` stored via `model.WithUser` (the key the service reads).
 - `auth.go` — login/logout/me/change-password, session cookie, login backoff

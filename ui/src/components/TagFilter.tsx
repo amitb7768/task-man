@@ -5,11 +5,13 @@
 // fetch and adds it to its reload effect deps.
 //
 // <TagFilter/> renders the known tags (GET /api/tags — open tasks only,
-// caller-scoped, optionally team-narrowed) as toggle pills; selected tags
-// the server no longer knows are still shown active so a stale filter can
-// always be cleared. Renders nothing when there are no known tags and
-// nothing is selected, or when the fetch fails (old binary without
-// /api/tags).
+// caller-scoped, optionally team-narrowed) as toggle pills. v11
+// (docs/DESIGN_V11_TAG_CATALOG.md): /api/tags now returns the WHOLE catalog
+// (count 0 included), so a stored selection absent from the response names
+// a deleted tag — it is dropped from the global filter on load (replaces
+// the v10 stale-pill rendering). Count-0 pills render normally with a muted
+// count. Renders nothing when there are no known tags, or when the fetch
+// fails.
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { TagCount } from "../api";
 import { api } from "../api";
@@ -87,8 +89,14 @@ export default function TagFilter({ teamId, status }: TagFilterProps) {
     api
       .tags(teamId, status)
       .then((r) => {
-        setKnown(r?.tags ?? []);
+        const list = r?.tags ?? [];
+        setKnown(list);
         setFailed(false);
+        // Drop selections the catalog no longer has (deleted tags). Read the
+        // module-level store, not a render-time copy, to avoid races.
+        const names = new Set(list.map((k) => k.tag));
+        const kept = selected.filter((t) => names.has(t));
+        if (kept.length !== selected.length) setSelected(kept);
       })
       .catch(() => setFailed(true));
   }, [teamId, status]);
@@ -99,10 +107,7 @@ export default function TagFilter({ teamId, status }: TagFilterProps) {
   useTasksChangedSubscription(load);
 
   if (failed || known === null) return null;
-  if (known.length === 0 && tags.length === 0) return null;
-
-  const knownNames = new Set(known.map((k) => k.tag));
-  const stale = tags.filter((t) => !knownNames.has(t));
+  if (known.length === 0) return null;
 
   function toggle(tag: string) {
     setTags(tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag]);
@@ -123,24 +128,10 @@ export default function TagFilter({ teamId, status }: TagFilterProps) {
             onClick={() => toggle(k.tag)}
           >
             #{k.tag}
-            <span className="tag-pill-count">{k.count}</span>
+            <span className={`tag-pill-count${k.count === 0 ? " zero" : ""}`}>{k.count}</span>
           </button>
         );
       })}
-      {stale.map((t) => (
-        <button
-          key={t}
-          type="button"
-          className="tag-pill active"
-          aria-pressed={true}
-          data-tag={t}
-          title={`No ${status === "closed" ? "closed" : "open"} tasks carry this tag — click to remove it from the filter`}
-          onClick={() => toggle(t)}
-        >
-          #{t}
-          <span className="tag-pill-count">0</span>
-        </button>
-      ))}
       {tags.length > 0 && (
         <button type="button" className="tag-filter-clear" onClick={() => setTags([])}>
           clear

@@ -2,12 +2,13 @@
 
 React 19 + TypeScript + Vite. **No router library** — navigation is hand-rolled:
 
-- `src/App.tsx` — `NavKey` tab state (`day|week|month|all|attention|teams|search`)
+- `src/App.tsx` — `NavKey` tab state (`day|week|month|backlog|all|attention|teams|tags|search`)
   + conditional render. The only "nested route" is `teamPageId` state → `TeamPage`
   (persisted to localStorage). A new page = new state + render branch here, or a
   view-local state inside the parent view (like TeamPage's members panel).
 - `src/views/` — one file per screen: DayView, WeekView, MonthView, AllTasksView,
-  AttentionView, TeamsLanding, TeamPage (largest, ~1200 lines), SearchView.
+  AttentionView, TeamsLanding, TeamPage (largest, ~1200 lines), SearchView,
+  BacklogView, TagsView (v11 ADMIN tag-catalog page; `styles/tags-page.css`).
 - `src/components/` — TaskRow, TaskDetail (slide-over; owns the "Daily
   notes" activity section), QuickAdd, TaskComposer, CompletedFold, Toast,
   SummaryPanel (date-range summary slide-over, mounted by TeamPage and by

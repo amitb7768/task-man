@@ -72,6 +72,10 @@ func (a *api) routes() *http.ServeMux {
 
 	// ---- tags (v10) ----
 	mux.HandleFunc("GET /api/tags", requireAuth(a.listTags))
+	// ---- tag catalog (v11) ----
+	mux.HandleFunc("GET /api/tags/catalog", requireAuth(a.listCatalog))
+	mux.HandleFunc("POST /api/tags/catalog", requireAdmin(a.createTag))
+	mux.HandleFunc("DELETE /api/tags/catalog/{name}", requireAdmin(a.deleteTag))
 
 	// ---- teams ----
 	mux.HandleFunc("POST /api/teams", requireAdmin(a.createTeam))
@@ -476,6 +480,41 @@ func (a *api) listTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tags": orEmpty(tags)})
+}
+
+// ---- tag catalog (docs/DESIGN_V11_TAG_CATALOG.md) ----
+
+func (a *api) listCatalog(w http.ResponseWriter, r *http.Request) {
+	tags, err := a.store.ListCatalog(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": orEmpty(tags)})
+}
+
+func (a *api) createTag(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, badRequest("invalid JSON: %s", err.Error()))
+		return
+	}
+	tag, err := a.store.CreateTag(r.Context(), body.Name)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, tag)
+}
+
+func (a *api) deleteTag(w http.ResponseWriter, r *http.Request) {
+	if err := a.store.DeleteTag(r.Context(), r.PathValue("name")); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- teams ----
