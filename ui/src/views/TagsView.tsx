@@ -124,7 +124,7 @@ export default function TagsView() {
                     type="button"
                     className="tags-delete"
                     aria-label={`Delete tag ${t.name}`}
-                    title={n > 0 ? `In use by ${n} task${n === 1 ? "" : "s"}` : "Delete tag"}
+                    title={n > 0 ? `In use by ${n} task${n === 1 ? "" : "s"}` : "Delete tag (refused if any task, including closed or private ones, still uses it)"}
                     disabled={busy || n > 0}
                     onClick={() => remove(t.name)}
                   >

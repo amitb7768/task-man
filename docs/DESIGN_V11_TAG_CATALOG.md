@@ -9,14 +9,15 @@ Orchestrator decisions (locked):
 
 1. **A catalog table is the source of truth.** `tags(name)` rows are
    created only by ADMIN on the new Tags page. A task may carry only
-   catalog tags: `validateTaskFields` (create, patch) and `RestoreTasks`
-   reject any tag not in the catalog with 400 `unknown tag "x"` — for
-   everyone, ADMIN included (the catalog page is the one creation point;
+   catalog tags: `validateTaskFields` (create, patch) rejects any newly
+   added tag not in the catalog with 400 `unknown tag "x"` — for
+   everyone, ADMIN included; `RestoreTasks` instead strips unknown tags
+   (Warn log with task id + dropped tags) so Undo never fails permanently (the catalog page is the one creation point;
    `#newtag` in a composer is no longer a way to mint a tag).
 2. **Migration 0003 seeds the catalog** from the distinct tags already on
    tasks, so no existing task becomes invalid.
 3. **Deleting a catalog tag is refused while any task carries it** (409
-   `tag "x" is in use by N tasks`). No rename, no merge (YAGNI; the admin
+   `tag "x" is in use by 1 task` / `by N tasks`). No rename, no merge (YAGNI; the admin
    deletes an unused tag and creates another).
 4. **The filter bar lists the catalog**, not "tags in use": `GET /api/tags`
    now returns every catalog tag with the caller-scoped open (or closed)
@@ -62,7 +63,14 @@ ON CONFLICT DO NOTHING;
 - `validateTaskFields`: after `NormalizeTags`, if `len(t.Tags) > 0`,
   `SELECT name FROM tags WHERE name IN ?` inside the same tx/db handle and
   reject the first missing one: `badRequest("unknown tag %q", missing)`.
-  `RestoreTasks` does the same check (it already normalises).
+  The lookup is `FOR SHARE`, so inside the patch/restore tx it serialises
+  against `DeleteTag`'s `FOR UPDATE` (on the autocommit create path the lock
+  is released at once — accepted).
+  On PATCH only tags not already on the loaded row (`orig.Tags`, passed as
+  `keepTags`) are checked, so a task carrying an orphan tag stays editable
+  and keeping or removing a tag never fails.
+  `RestoreTasks` runs the same lookup (it already normalises) but strips
+  unknown tags and logs a Warn (task id + dropped tags) instead of a 400.
 - `ListTags(ctx, teamID *string, closed bool)` → catalog LEFT JOIN scoped
   counts:
 
@@ -80,7 +88,7 @@ GROUP BY g.name ORDER BY g.name ASC
   `NormalizeTags([]string{name})` → exactly one tag else 400; insert;
   unique violation → 409 `tag "x" already exists`.
 - `DeleteTag(ctx, name)`: ADMIN only; count tasks with `tags @> ?`; >0 →
-  409 `tag "x" is in use by N tasks`; else delete; 0 rows → 404.
+  409 `tag "x" is in use by 1 task` / `by N tasks`; else delete; 0 rows → 404.
 - `ListCatalog(ctx) ([]model.Tag, error)` — plain list, name asc (the
   Tags page uses `GET /api/tags` for counts; this one is for the picker).
 
@@ -152,4 +160,85 @@ GROUP BY g.name ORDER BY g.name ASC
 - Admins must create a tag before anyone can use it; `#typo` on a composer
   now fails the create instead of minting a tag.
 - No rename/merge; delete only when unused.
+- Undo/restore of a task whose tag was deleted from the catalog in the
+  meantime brings the task back without that tag (logged), rather than
+  failing.
 - The catalog is global (not per team).
+
+## E2E results (run 2026-10-01, commit 604780e)
+
+Headless agent-browser (two sessions: default = ADMIN, `catalog-user` =
+USER Uma) against a binary built from **HEAD 604780e** (built 16:16, before
+the uncommitted review fixes landed in this worktree at 16:21+; `ui/dist`
+16:08), port :18485, schema `taskman_catalog_e2e` (fresh; boot migrated it
+to `schema_migrations.version = 3`, `tags` present + empty; note the boot
+log prints no migration lines — version read from SQL). Admin seeded by env;
+fixtures: team "Platform", member Uma (login enabled → USER). Viewport set
+to 1280×900 (see driver notes).
+
+**Verdict: PASS on all 8 checklist items.** Two behaviours of 604780e worth
+the orchestrator's attention (B1, B2 below) — both are already addressed by
+the uncommitted worktree changes (keepTags on PATCH, strip-on-restore,
+"1 task" wording), which this run did **not** exercise.
+
+| # | Result | Evidence |
+|---|---|---|
+| seed | **OBSERVED** | Tags page created `seedtag`; Day composer `Seed task #seedtag` → chip. Server stopped, `DELETE FROM tags`, restarted: migration no-op (version 3), catalog stays empty (seed only runs inside 0003 — expected). The orphan-tag task still **renders** with its `seedtag` chip on Day, but the filter bar is absent (`/api/tags` → `{"tags":[]}`), the Tags page doesn't list it. Any PATCH on the task — title rename *and* status change — → 400 `unknown tag "seedtag"` (B1). Re-running the 0003 seed `INSERT … SELECT DISTINCT` by hand restored the row → pill `#seedtag 1` back, PATCH 200. |
+| 1 | **PASS** | Empty state "No tags yet. Create the first one above." Created `backend`, `ops`, `CI/CD` → rows `backend`,`ci/cd`,`ops` (name asc, normalised), each "0 open", input cleared. `OPS` → inline `div.tags-create-error[role=alert]` `tag "ops" already exists` (POST 409), text kept. `a b` → inline `invalid tag "a b"` (POST 400). Typing clears the error. |
+| 2 | **PASS** | Day filter bar: `#backend 0`, `#ci/cd 0`, `#ops 0`, each count `span.tag-pill-count.zero`. |
+| 3 | **PASS** | Day composer `Fix login #backend` → POST 201, row chip `backend`. `Fix #nosuch` → POST 400, `.composer-error-row .error` `unknown tag "nosuch"`, input keeps `Fix #nosuch`. Bonus: expanded composer (Shift+Enter, chip `nosuch2`, Create task) → 400 shown inline. Team "Platform", grouped board: "Add for Uma…" `Deploy #ops` → created with chip `ops`, assignee U; `X #nosuch` → `div.error` (child of `.team-page`, under the header) `unknown tag "nosuch"`, text retained; team composer `Team composer #nosuch` → its own `.composer-error-row` error. |
+| 4 | **PASS** (Enter) | Detail of "Fix login": `input.td-tags-input[list=tag-catalog]`, placeholder "Pick a tag…", datalist `[ci/cd, ops]` (applied `backend` excluded). Type `ops` + Enter → PATCH 200, chips `backend, ops`, datalist `[ci/cd]`. `zzz` + Enter → PATCH 400, `div.td-tags-error` `unknown tag "zzz"`, text kept. Mouse-pick of a suggestion (simulated: value set + `InputEvent insertReplacementText`, since headless Chrome's datalist popup is not in the DOM) only fills the input — no PATCH for 1.2 s; it was committed by the next blur (the existing v10 blur-add), not by the selection itself. So a mouse pick needs Enter or a blur. |
+| 5 | **PASS** | Tags page: `backend 1 open`, `ci/cd 1 open` (from the blur in #4), `ops 2 open`; every delete disabled with `title="In use by 1 task"` / `"In use by 2 tasks"`. Mark done on "Fix login" → `backend 0 open`, delete enabled (`title="Delete tag"`); click → DELETE 409, `div.tags-list-error` `tag "backend" is in use by 1 tasks` (no confirm dialog; row stays). Detail of the completed task → × `backend` → PATCH 200; Delete → 204, row gone; Day pills `[ci/cd, ops]`; detail datalist no longer offers `backend`. |
+| 6 | **PASS** | Uma (temp password → forced change): nav `Day Week Month All tasks Attention Teams Search` — no Tags (no Backlog either). Her cookie: `POST /api/tags/catalog` → 403 `{"error":"admin only"}`, `DELETE /api/tags/catalog/ops` → 403 `admin only`, `GET /api/tags/catalog` → 200 with both names. Admin creates personal open "Admin private" `[ci/cd]`: ADMIN `/api/tags` → `ci/cd 1, ops 1`; USER → `ci/cd 0, ops 1` (ops = her assigned team task). Uma creates "Uma errand", picker datalist `[ci/cd, ops]`, types `ci/cd` + Enter → chip; her `/api/tags` → `ci/cd 1`; admin's stays 1. |
+| 7 | **PASS** | `#ops` selected on Day → `taskman-tagfilter=["ops"]`; switch to Week/Month → still active, requests carry `tag=ops`. Created `temp`, selected it → `["ops","temp"]`. Tags page delete `temp` → 204 (row gone; storage still `["ops","temp"]` while on the Tags page, which has no filter bar). Back to Day → storage `["ops"]`, pills `[ci/cd, ops✓]`; Week same. Network: the first Day fetch after the delete still carried `tag=ops&tag=temp` (200), immediately followed by `tag=ops` — a transient stale fetch, same unsequenced-fetch pattern accepted in v10. |
+| 8 | **PASS** | 262 requests, 0 × 5xx, 0 panics. All 4xx intended: tag-catalog 400/403×2/404/409×3, POST /tasks 400×4 (unknown tag), PATCH 400×3 (`zzz` + 2 orphan probes), 401×4 unauthenticated, 403×3 USER `GET /api/members` (pre-existing sidebar call, as in v10), 415×4 = my curl DELETEs without `Content-Type` (driver error). |
+
+**Bugs / findings (604780e):**
+
+- **B1 — a task carrying a tag missing from the catalog is frozen.**
+  Repro: task with tag `x`; remove the `tags` row for `x` out-of-band (or
+  any path that orphans it); `PATCH /api/tasks/{id}` `{"title":"…"}` or
+  `{"status":"in_progress"}` → 400 `unknown tag "x"`. The UI cannot even
+  complete it; removing the chip is the only way out (that PATCH no longer
+  carries `x`). By contract the orphan state is unreachable through the app
+  (seed + delete refusal), so severity is low; the worktree's uncommitted
+  `keepTags` change targets exactly this.
+- **B2 — Undo/restore after the tag was deleted fails.** Repro (API):
+  create tag `t2`, task `[t2]`, `DELETE /api/tasks/{id}`, `DELETE
+  /api/tags/catalog/t2` → 204 (now unused), `POST /api/tasks/restore
+  {"tasks":[…]}` → 400 `unknown tag "t2"` — the deleted task is
+  unrecoverable. Matched the 604780e contract (decision 1) but the
+  updated "Accepted consequences" now say restore strips the tag instead;
+  re-test once that lands.
+- **Minor copy:** 409 reads `is in use by 1 tasks` (also fixed in the
+  worktree). Tags-page row says "0 open" while delete is refused because a
+  *closed* task carries the tag — the 409 explains it, but the row gives
+  no hint before the click.
+
+**Observations (not defects):** QuickAdd's "WILL CREATE" preview renders
+`#nosuch` as a normal tag chip before submit (unknown only on 400). Tag
+delete has no confirmation step (fine: refused while in use). Catalog
+`createdAt` serialises as UTC `Z` while task timestamps carry `+05:30`.
+
+**Driver notes:** default agent-browser viewport is 1280×577, at which the
+sidebar footer overlaps the Tags nav item (click intercepted by
+`div.sidebar-footer`) — set `ab set viewport 1280 900` (screenshot
+`/tmp/catalog-0-short-viewport-nav.png`; worth a look as a short-window
+layout issue, nav not scrollable under the footer). Mid-run the default
+session came back on `about:blank` with a reset viewport and empty
+localStorage (re-logged in; #7 was run fully in the new page). Datalist
+popups are native and not scriptable — selection simulated as described in
+#4. `ab type` = insertText. Row hover actions need `ab hover @row` before
+Mark done. DELETE routes need `Content-Type: application/json` from curl
+(415 otherwise). Fixture SQL in the scratch schema: `DELETE FROM tags`
+(seed step) and a manual re-run of the 0003 seed INSERT. Schema
+`taskman_catalog_e2e` left in place.
+Screenshots: `/tmp/catalog-0-seed-orphan.png`,
+`/tmp/catalog-1-empty.png`, `/tmp/catalog-1-dup-409.png`,
+`/tmp/catalog-1-invalid-400.png`, `/tmp/catalog-2-day-zero-pills.png`,
+`/tmp/catalog-3-composer-unknown.png`, `/tmp/catalog-3-expanded-unknown.png`,
+`/tmp/catalog-3-quickadd-unknown.png`, `/tmp/catalog-3-team-errors.png`,
+`/tmp/catalog-4-detail-unknown.png`, `/tmp/catalog-5-tags-counts.png`,
+`/tmp/catalog-5-delete-409.png`, `/tmp/catalog-5-after-delete-detail.png`,
+`/tmp/catalog-6-user-nav.png`, `/tmp/catalog-6-user-picker.png`,
+`/tmp/catalog-7-temp-selected.png`, `/tmp/catalog-7-temp-dropped.png`.

@@ -167,12 +167,12 @@ function TagsEditor({
     }
   }
 
-  function addPending() {
-    const fresh = draft
+  function addPending(value = draft) {
+    const fresh = value
       .split(",")
       .map((t) => t.trim().toLowerCase())
       .filter((t) => t !== "" && !tags.includes(t));
-    if (!draft.trim() || busy) return;
+    if (!value.trim() || busy) return;
     if (fresh.length === 0) {
       setDraft("");
       return;
@@ -206,8 +206,16 @@ function TagsEditor({
           aria-label="Add tag"
           list="tag-catalog"
           onChange={(e) => {
-            setDraft(e.target.value);
+            const value = e.target.value;
+            setDraft(value);
             if (error) setError(null);
+            // A pick from the datalist (mouse or keyboard) applies at once,
+            // no Enter needed; so does typing a catalog name exactly.
+            const picked = (e.nativeEvent as InputEvent).inputType === "insertReplacementText";
+            const norm = value.trim().toLowerCase();
+            if (picked || (norm !== "" && catalog.some((c) => c.toLowerCase() === norm))) {
+              addPending(value);
+            }
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {

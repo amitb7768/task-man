@@ -130,7 +130,7 @@ func TestTagCatalogHTTP(t *testing.T) {
 	})
 
 	t.Run("ADMIN delete: 409 in use, 404 unknown, 204", func(t *testing.T) {
-		if m := errMsg(t, mustStatus(t, ac, "DELETE", "/api/tags/catalog/ops", "", http.StatusConflict)); m != `tag "ops" is in use by 1 tasks` {
+		if m := errMsg(t, mustStatus(t, ac, "DELETE", "/api/tags/catalog/ops", "", http.StatusConflict)); m != `tag "ops" is in use by 1 task` {
 			t.Fatalf("in-use error = %q", m)
 		}
 		mustStatus(t, ac, "DELETE", "/api/tags/catalog/ghost", "", http.StatusNotFound).Body.Close()

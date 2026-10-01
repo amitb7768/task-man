@@ -46,23 +46,38 @@ func (s *Service) ListTags(ctx context.Context, teamID *string, closed bool) ([]
 // unknownTag returns the first of tags (already normalised) that is not in
 // the catalog, or "" when all are. db is s.db or the caller's tx.
 func unknownTag(db *gorm.DB, tags []string) (string, error) {
+	_, dropped, err := splitCatalogTags(db, tags)
+	if err != nil || len(dropped) == 0 {
+		return "", err
+	}
+	return dropped[0], nil
+}
+
+// splitCatalogTags splits tags (already normalised) into those in the
+// catalog and those not, each in input order. The FOR SHARE lock serialises
+// a patch/restore tx against DeleteTag's FOR UPDATE on the same row (on the
+// autocommit create path it is released at once — accepted).
+func splitCatalogTags(db *gorm.DB, tags []string) (kept, dropped []string, err error) {
 	if len(tags) == 0 {
-		return "", nil
+		return tags, nil, nil
 	}
 	var known []string
-	if err := db.Raw(`SELECT name FROM tags WHERE name IN ?`, tags).Scan(&known).Error; err != nil {
-		return "", err
+	if err := db.Raw(`SELECT name FROM tags WHERE name IN ? FOR SHARE`, tags).Scan(&known).Error; err != nil {
+		return nil, nil, err
 	}
 	have := make(map[string]bool, len(known))
 	for _, n := range known {
 		have[n] = true
 	}
+	kept = make([]string, 0, len(tags))
 	for _, tag := range tags {
-		if !have[tag] {
-			return tag, nil
+		if have[tag] {
+			kept = append(kept, tag)
+		} else {
+			dropped = append(dropped, tag)
 		}
 	}
-	return "", nil
+	return kept, dropped, nil
 }
 
 // requireAdminCaller mirrors the route's requireAdmin inside the service (a
@@ -134,6 +149,9 @@ func (s *Service) DeleteTag(ctx context.Context, name string) error {
 		var n int64
 		if err := tx.Raw(`SELECT count(*) FROM tasks WHERE tags @> ?::jsonb`, string(b)).Scan(&n).Error; err != nil {
 			return err
+		}
+		if n == 1 {
+			return conflictErr("tag %q is in use by 1 task", name)
 		}
 		if n > 0 {
 			return conflictErr("tag %q is in use by %d tasks", name, n)

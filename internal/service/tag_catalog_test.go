@@ -35,16 +35,15 @@ func TestTagCatalogEnforcedOnTaskWrites(t *testing.T) {
 	// A non-tag patch on a tagged task still validates fine.
 	tkPatch(t, e.asAlice, e.s, v.ID, `{"title":"renamed"}`)
 
-	// Restore: unknown → 400 and nothing written; catalog → ok.
+	// Restore: unknown tags are stripped (Undo never fails); catalog → ok.
 	now := v.CreatedAt
 	bad := model.Task{ID: NewID(), Title: "r", Horizon: model.HorizonDaily, Period: tkToday(),
-		Status: model.StatusTodo, OwnerID: tkStr(e.alice.ID), CreatedAt: now, UpdatedAt: now, Tags: model.Tags{"Ghost"}}
-	_, err = e.s.RestoreTasks(e.asAdmin, []model.Task{bad})
-	tkWantErr(t, err, 400, `unknown tag "ghost"`)
-	e.s.db.Raw("SELECT count(*) FROM tasks WHERE id = ?", bad.ID).Scan(&n)
-	if n != 0 {
-		t.Fatal("rejected restore must write nothing")
+		Status: model.StatusTodo, OwnerID: tkStr(e.alice.ID), CreatedAt: now, UpdatedAt: now, Tags: model.Tags{"Ghost", "known"}}
+	if got, err := e.s.RestoreTasks(e.asAdmin, []model.Task{bad}); err != nil || got != 1 {
+		t.Fatalf("restore with unknown tag: n=%d err=%v", got, err)
 	}
+	tgWantTags(t, "restore stripped", tgStored(t, e, bad.ID), "known")
+	bad.ID = NewID()
 	bad.Tags = model.Tags{"Known"}
 	if got, err := e.s.RestoreTasks(e.asAdmin, []model.Task{bad}); err != nil || got != 1 {
 		t.Fatalf("restore with catalog tag: n=%d err=%v", got, err)
@@ -105,7 +104,7 @@ func TestTagCatalogDelete(t *testing.T) {
 	tkWantErr(t, e.s.DeleteTag(e.asAlice, "free"), 403, "admin only")
 	// In use counts every task (any owner, any status) — not the caller's scope.
 	tkWantErr(t, e.s.DeleteTag(e.asAdmin, "used"), 409, `tag "used" is in use by 2 tasks`)
-	tkWantErr(t, e.s.DeleteTag(e.asAdmin, "closedonly"), 409, `tag "closedonly" is in use by 1 tasks`)
+	tkWantErr(t, e.s.DeleteTag(e.asAdmin, "closedonly"), 409, `tag "closedonly" is in use by 1 task`)
 	tkWantErr(t, e.s.DeleteTag(e.asAdmin, "ghost"), 404, "tag not found")
 	if err := e.s.DeleteTag(e.asAdmin, "free"); err != nil {
 		t.Fatal(err)
@@ -117,4 +116,61 @@ func TestTagCatalogDelete(t *testing.T) {
 	}
 	_, err := e.s.CreateTask(e.asAlice, &model.Task{Title: "x", Horizon: model.HorizonDaily, Period: tkToday(), Tags: []string{"free"}})
 	tkWantErr(t, err, 400, `unknown tag "free"`)
+}
+
+// Fix wave: the catalog gate on PATCH checks only newly added tags, and a
+// rejected FSM-path patch leaves status, tags and activity untouched.
+func TestTagCatalogPatchGate(t *testing.T) {
+	e := tkSetup(t)
+	tkTags(t, e.s, "known")
+
+	// (a) FSM path: status change + unknown tag → 400, nothing changes.
+	v := tkCreate(t, e.asAlice, e.s, "fsm", tgTags("known"))
+	_, err := e.s.PatchTask(e.asAlice, v.ID, []byte(`{"status":"done","tags":["ghost"]}`))
+	tkWantErr(t, err, 400, `unknown tag "ghost"`)
+	var status string
+	var acts int64
+	e.s.db.Raw("SELECT status FROM tasks WHERE id = ?", v.ID).Scan(&status)
+	e.s.db.Raw("SELECT count(*) FROM task_activity WHERE task_id = ?", v.ID).Scan(&acts)
+	if status != model.StatusTodo || acts != 0 {
+		t.Fatalf("after rejected FSM patch: status=%q activity=%d", status, acts)
+	}
+	tgWantTags(t, "after rejected FSM patch", tgStored(t, e, v.ID), "known")
+
+	// (c) A task carrying an orphan tag (not in the catalog) stays editable.
+	o := tkCreate(t, e.asAlice, e.s, "orphan", nil)
+	tkExec(t, e.s, `UPDATE tasks SET tags='["orphan"]' WHERE id = ?`, o.ID)
+	p := tkPatch(t, e.asAlice, e.s, o.ID, `{"title":"x"}`)
+	tgWantTags(t, "title patch", p.Tags, "orphan")
+	p = tkPatch(t, e.asAlice, e.s, o.ID, `{"status":"done"}`)
+	if p.Status != model.StatusDone {
+		t.Fatalf("status = %q", p.Status)
+	}
+	tgWantTags(t, "status patch", tgStored(t, e, o.ID), "orphan")
+	_, err = e.s.PatchTask(e.asAlice, o.ID, []byte(`{"tags":["orphan","nope"]}`))
+	tkWantErr(t, err, 400, `unknown tag "nope"`)
+	tgWantTags(t, "after rejected add", tgStored(t, e, o.ID), "orphan")
+	p = tkPatch(t, e.asAlice, e.s, o.ID, `{"tags":["orphan","known"]}`)
+	tgWantTags(t, "keep orphan + add known", p.Tags, "orphan", "known")
+	p = tkPatch(t, e.asAlice, e.s, o.ID, `{"tags":[]}`)
+	tgWantTags(t, "remove all", p.Tags)
+}
+
+// (b) Restore of parent+child where the child carries an unknown tag: both
+// restored, the child's unknown tag stripped, the parent intact.
+func TestTagCatalogRestoreStripsUnknown(t *testing.T) {
+	e := tkSetup(t)
+	tkTags(t, e.s, "known")
+	now := tkCreate(t, e.asAlice, e.s, "clock", nil).CreatedAt
+	parent := model.Task{ID: NewID(), Title: "p", Horizon: model.HorizonWeekly, Period: tkThisWeek(),
+		Status: model.StatusTodo, OwnerID: tkStr(e.alice.ID), CreatedAt: now, UpdatedAt: now, Tags: model.Tags{"known"}}
+	child := model.Task{ID: NewID(), Title: "c", Horizon: model.HorizonDaily, Period: tkToday(), ParentID: tkStr(parent.ID),
+		Status: model.StatusTodo, OwnerID: tkStr(e.alice.ID), CreatedAt: now, UpdatedAt: now, Tags: model.Tags{"gone", "known"}}
+	// Child first: restore orders parent-before-child itself.
+	got, err := e.s.RestoreTasks(e.asAdmin, []model.Task{child, parent})
+	if err != nil || got != 2 {
+		t.Fatalf("restore: n=%d err=%v", got, err)
+	}
+	tgWantTags(t, "parent", tgStored(t, e, parent.ID), "known")
+	tgWantTags(t, "child", tgStored(t, e, child.ID), "known")
 }
