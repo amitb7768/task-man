@@ -123,6 +123,9 @@ func spaHandler(dir string) http.HandlerFunc {
 		p := filepath.Join(dir, filepath.Clean(r.URL.Path))
 		info, err := os.Stat(p)
 		if err != nil || info.IsDir() {
+			// index.html must revalidate on every load, or a browser keeps the old
+			// bundle after a deploy (assets are content-hashed, so they may cache).
+			w.Header().Set("Cache-Control", "no-cache")
 			http.ServeFile(w, r, index)
 			return
 		}
